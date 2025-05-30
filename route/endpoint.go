@@ -11,5 +11,24 @@ type Handler interface {
 }
 
 var endpoint = map[string]Handler{
-	"login": auth.NewLogin(),
+	// Authentication endpoints
+	"login":         auth.NewLoginHandler(),
+	"check-phone":   auth.NewCheckPhoneHandler(),
+	"refresh-token": auth.NewRefreshTokenHandler(),
+	"logout":        auth.NewLogoutHandler(),
+
+	// Activation endpoints
+	"activation-initiate": auth.NewActivationInitiateHandler(),
+	"activation-complete": auth.NewActivationCompleteHandler(),
+
+	// OTP endpoints
+	"otp-send":   auth.NewOtpSendHandler(),
+	"otp-verify": auth.NewOtpVerifyHandler(),
+
+	// Registration endpoints
+	"register-request":  auth.NewRegisterRequestHandler(),
+	"register-complete": auth.NewRegisterCompleteHandler(),
+
+	// Profile endpoint
+	"profile": auth.NewProfileHandler(),
 }

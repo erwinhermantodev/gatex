@@ -49,7 +49,7 @@ func InitializeClient() (InitClient, error) {
 	}, nil
 }
 
-func performRequest(ctx context.Context, endpoint string, payload map[string]interface{}) (map[string]interface{}, error) {
+func performRequest(ctx context.Context, endpoint string, Method string, payload map[string]interface{}) (map[string]interface{}, error) {
 	client, err := InitializeClient()
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize client: %v", err)
@@ -57,7 +57,7 @@ func performRequest(ctx context.Context, endpoint string, payload map[string]int
 
 	url := fmt.Sprintf("%s%s", client.BaseURL, endpoint)
 
-	resClient, err := client.Client.CallAPI(ctx, "POST", url, payload)
+	resClient, err := client.Client.CallAPI(ctx, Method, url, payload)
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +74,7 @@ func Login(ctx context.Context, request *auth.LoginRequest) (map[string]interfac
 		"phoneNumber": request.PhoneNumber,
 		"password":    request.Password,
 	}
-	return performRequest(ctx, "/login", payload)
+	return performRequest(ctx, "/login", "POST", payload)
 }
 
 func CheckPhone(ctx context.Context, request *auth.LoginRequest) (map[string]interface{}, error) {
@@ -85,7 +85,7 @@ func CheckPhone(ctx context.Context, request *auth.LoginRequest) (map[string]int
 	payload := map[string]interface{}{
 		"phoneNumber": request.PhoneNumber,
 	}
-	return performRequest(ctx, "check-phone", payload)
+	return performRequest(ctx, "/check-phone", "POST", payload)
 }
 
 func RefreshToken(ctx context.Context, request *auth.LoginRequest) (map[string]interface{}, error) {
@@ -96,5 +96,141 @@ func RefreshToken(ctx context.Context, request *auth.LoginRequest) (map[string]i
 	payload := map[string]interface{}{
 		"phoneNumber": request.PhoneNumber,
 	}
-	return performRequest(ctx, "refresh-token", payload)
+	return performRequest(ctx, "/refresh-token", "POST", payload)
+}
+
+func Logout(ctx context.Context, request *auth.RefreshTokenRequest) (map[string]interface{}, error) {
+	if err := LoadEnv(); err != nil {
+		return nil, fmt.Errorf("failed to load environment variables: %v", err)
+	}
+
+	payload := map[string]interface{}{
+		"refreshToken": request.RefreshToken,
+	}
+	return performRequest(ctx, "/logout", "POST", payload)
+}
+
+func ActivationInitiate(ctx context.Context, request *auth.ActivationRequest) (map[string]interface{}, error) {
+	if err := LoadEnv(); err != nil {
+		return nil, fmt.Errorf("failed to load environment variables: %v", err)
+	}
+
+	payload := map[string]interface{}{
+		"phoneNumber": request.PhoneNumber,
+		"accountNo":   request.AccountNo,
+		"nik":         request.NIK,
+		"birthDate":   request.BirthDate,
+		"motherName":  request.MotherName,
+	}
+	return performRequest(ctx, "/activation/initiate", "POST", payload)
+}
+
+func ActivationComplete(ctx context.Context, request *auth.ActivationRequest) (map[string]interface{}, error) {
+	if err := LoadEnv(); err != nil {
+		return nil, fmt.Errorf("failed to load environment variables: %v", err)
+	}
+
+	payload := map[string]interface{}{
+		"phoneNumber":  request.PhoneNumber,
+		"password":     request.Password,
+		"fullName":     request.FullName,
+		"nickName":     request.NickName,
+		"birthPlace":   request.BirthPlace,
+		"birthDate":    request.BirthDate,
+		"gender":       request.Gender,
+		"religion":     request.Religion,
+		"address":      request.Address,
+		"rt":           request.RT,
+		"rw":           request.RW,
+		"province":     request.Province,
+		"city":         request.City,
+		"district":     request.District,
+		"subDistrict":  request.SubDistrict,
+		"postalCode":   request.PostalCode,
+		"npwp":         request.NPWP,
+		"email":        request.Email,
+		"occupation":   request.Occupation,
+		"fundPurpose":  request.FundPurpose,
+		"fundSource":   request.FundSource,
+		"annualIncome": request.AnnualIncome,
+	}
+	return performRequest(ctx, "/activation/complete", "POST", payload)
+}
+
+func OtpSend(ctx context.Context, request *auth.OtpRequest) (map[string]interface{}, error) {
+	if err := LoadEnv(); err != nil {
+		return nil, fmt.Errorf("failed to load environment variables: %v", err)
+	}
+
+	payload := map[string]interface{}{
+		"phoneNumber": request.PhoneNumber,
+	}
+	return performRequest(ctx, "/otp/send", "POST", payload)
+}
+
+func OtpVerify(ctx context.Context, request *auth.OtpRequest) (map[string]interface{}, error) {
+	if err := LoadEnv(); err != nil {
+		return nil, fmt.Errorf("failed to load environment variables: %v", err)
+	}
+
+	payload := map[string]interface{}{
+		"phoneNumber": request.PhoneNumber,
+		"otpCode":     request.OtpCode,
+	}
+	return performRequest(ctx, "/otp/verify", "POST", payload)
+}
+
+func RegisterRequest(ctx context.Context, request *auth.LoginRequest) (map[string]interface{}, error) {
+	if err := LoadEnv(); err != nil {
+		return nil, fmt.Errorf("failed to load environment variables: %v", err)
+	}
+
+	payload := map[string]interface{}{
+		"phoneNumber": request.PhoneNumber,
+	}
+	return performRequest(ctx, "/register/request", "POST", payload)
+}
+
+func RegisterComplete(ctx context.Context, request *auth.ActivationRequest) (map[string]interface{}, error) {
+	if err := LoadEnv(); err != nil {
+		return nil, fmt.Errorf("failed to load environment variables: %v", err)
+	}
+
+	// Create payload matching the curl request structure
+	payload := map[string]interface{}{
+		"phoneNumber":  request.PhoneNumber,
+		"password":     request.Password,
+		"referralCode": request.ReferralCode,
+		"fullName":     request.FullName,
+		"nickName":     request.NickName,
+		"birthPlace":   request.BirthPlace,
+		"birthDate":    request.BirthDate,
+		"gender":       request.Gender,
+		"religion":     request.Religion,
+		"address":      request.Address,
+		"rt":           request.RT,
+		"rw":           request.RW,
+		"province":     request.Province,
+		"city":         request.City,
+		"district":     request.District,
+		"subDistrict":  request.SubDistrict,
+		"postalCode":   request.PostalCode,
+		"npwp":         request.NPWP,
+		"email":        request.Email,
+		"occupation":   request.Occupation,
+		"fundPurpose":  request.FundPurpose,
+		"fundSource":   request.FundSource,
+		"annualIncome": request.AnnualIncome,
+	}
+
+	return performRequest(ctx, "/register/complete", "POST", payload)
+}
+
+func Profile(ctx context.Context, request *auth.LoginRequest) (map[string]interface{}, error) {
+	if err := LoadEnv(); err != nil {
+		return nil, fmt.Errorf("failed to load environment variables: %v", err)
+	}
+
+	payload := map[string]interface{}{}
+	return performRequest(ctx, "/profile", "GET", payload)
 }
