@@ -3,7 +3,7 @@ package auth
 // LoginRequest represents the login credentials
 type LoginRequest struct {
 	PhoneNumber string `json:"phoneNumber" validate:"required,min=10,max=15"`
-	Password    string `json:"password" validate:"required,min=6"`
+	Password    string `json:"password"`
 }
 
 // LoginResponse represents the successful login response
@@ -20,7 +20,11 @@ type RefreshTokenRequest struct {
 // OtpRequest represents OTP verification request
 type OtpRequest struct {
 	PhoneNumber string `json:"phoneNumber" validate:"required,min=10,max=15"`
-	OtpCode     string `json:"otpCode" validate:"required,len=6"`
+	OtpCode     string `json:"otpCode"`
+}
+
+type CheckPhoneRequest struct {
+	PhoneNumber string `json:"phoneNumber" validate:"required,min=10,max=15"`
 }
 
 // ProfileResponse represents user profile information
@@ -32,34 +36,34 @@ type ProfileResponse struct {
 // ActivationRequest represents account activation request
 type ActivationRequest struct {
 	// Basic Info
-	PhoneNumber string `json:"phoneNumber" validate:"required,min=10,max=15"`
-	AccountNo   string `json:"accountNo" validate:"required"`
-	NIK         string `json:"nik" validate:"required,len=16"`
-	BirthDate   string `json:"birthDate" validate:"required"`
-	MotherName  string `json:"motherName" validate:"required"`
+	PhoneNumber string `json:"phoneNumber" `
+	AccountNo   string `json:"accountNo" `
+	NIK         string `json:"nik" `
+	BirthDate   string `json:"birthDate" `
+	MotherName  string `json:"motherName" `
 
 	// Personal Details
-	Password     string `json:"password" validate:"required,min=6"`
+	Password     string `json:"password" `
 	ReferralCode string `json:"referralCode"`
-	FullName     string `json:"fullName" validate:"required"`
+	FullName     string `json:"fullName" `
 	NickName     string `json:"nickName"`
-	BirthPlace   string `json:"birthPlace" validate:"required"`
-	Gender       string `json:"gender" validate:"required,oneof=M F"`
+	BirthPlace   string `json:"birthPlace" `
+	Gender       string `json:"gender" `
 	Religion     string `json:"religion"`
 
 	// Address Info
-	Address     string `json:"address" validate:"required"`
+	Address     string `json:"address" `
 	RT          string `json:"rt"`
 	RW          string `json:"rw"`
-	Province    string `json:"province" validate:"required"`
-	City        string `json:"city" validate:"required"`
-	District    string `json:"district" validate:"required"`
-	SubDistrict string `json:"subDistrict" validate:"required"`
-	PostalCode  string `json:"postalCode" validate:"required,len=5"`
+	Province    string `json:"province" `
+	City        string `json:"city" `
+	District    string `json:"district" `
+	SubDistrict string `json:"subDistrict" `
+	PostalCode  string `json:"postalCode" `
 
 	// Additional Info
-	NPWP         string `json:"npwp" validate:"len=15"`
-	Email        string `json:"email" validate:"email"`
+	NPWP         string `json:"npwp" `
+	Email        string `json:"email" `
 	Occupation   string `json:"occupation"`
 	FundPurpose  string `json:"fundPurpose"`
 	FundSource   string `json:"fundSource"`

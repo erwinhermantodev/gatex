@@ -11,22 +11,22 @@ import (
 )
 
 // ClientFunc represents a generic client function signature
-type ClientFunc func(ctx context.Context, request interface{}) (map[string]interface{}, error)
+// type ClientFunc func(ctx context.Context, request interface{}) (map[string]interface{}, error)
 
-// RequestValidator interface for request validation
-type RequestValidator interface {
-	Validate() error
-}
+// // RequestValidator interface for request validation
+// type RequestValidator interface {
+// 	Validate() error
+// }
 
-// AuthHandler is a generic handler that can handle multiple auth endpoints
-type AuthHandler struct {
-	clientFunc  ClientFunc
-	requestType func() interface{} // Factory function to create new request instance
-	operation   string             // For error messages
-}
+// // AuthHandler is a generic handler that can handle multiple auth endpoints
+// type AuthHandler struct {
+// 	clientFunc  ClientFunc
+// 	requestType func() interface{} // Factory function to create new request instance
+// 	operation   string             // For error messages
+// }
 
 // Handle processes the request generically
-func (h *AuthHandler) Handle(c echo.Context) error {
+func (h *AuthHandler) HandleGrpc(c echo.Context) error {
 	ctx := c.Request().Context()
 	if ctx == nil {
 		ctx = context.Background()
@@ -48,38 +48,99 @@ func (h *AuthHandler) Handle(c echo.Context) error {
 	// Call the client function
 	result, err := h.clientFunc(ctx, req)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, h.operation+" failed")
+		// Handle gRPC specific errors
+		return h.handleGRPCError(c, err)
 	}
 
 	// Build response safely
-	resp, err := h.buildResponse(result)
+	resp, err := h.buildResponseGRPC(result)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to process response")
 	}
 
-	return c.JSON(http.StatusOK, resp)
+	// Return appropriate HTTP status based on success
+	statusCode := http.StatusOK
+	// if resp.Status != nil && !*resp.Status {
+	// 	statusCode = http.StatusBadRequest
+	// }
+
+	return c.JSON(statusCode, resp)
 }
 
-// buildResponse safely builds the response
-func (h *AuthHandler) buildResponse(result map[string]interface{}) (*domain.ClientResponse, error) {
+// handleGRPCError handles gRPC specific errors and maps them to appropriate HTTP status codes
+func (h *AuthHandler) handleGRPCError(c echo.Context, err error) error {
+	// You can add more sophisticated gRPC error handling here
+	// For example, mapping specific gRPC status codes to HTTP status codes
+
+	// For now, treat all gRPC errors as internal server errors
+	// unless they contain specific messages that indicate client errors
+	errorMsg := err.Error()
+
+	// Check for common client errors
+	if contains(errorMsg, "invalid") || contains(errorMsg, "validation") {
+		return echo.NewHTTPError(http.StatusBadRequest, h.operation+" failed: "+errorMsg)
+	}
+
+	if contains(errorMsg, "unauthorized") || contains(errorMsg, "forbidden") {
+		return echo.NewHTTPError(http.StatusUnauthorized, h.operation+" failed: "+errorMsg)
+	}
+
+	if contains(errorMsg, "not found") {
+		return echo.NewHTTPError(http.StatusNotFound, h.operation+" failed: "+errorMsg)
+	}
+
+	// Default to internal server error
+	return echo.NewHTTPError(http.StatusInternalServerError, h.operation+" failed")
+}
+
+// contains checks if a string contains a substring (case-insensitive)
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr ||
+		(len(s) > len(substr) &&
+			(s[:len(substr)] == substr ||
+				s[len(s)-len(substr):] == substr ||
+				findSubstring(s, substr))))
+}
+
+func findSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
+// buildResponseGRPC safely builds the response
+func (h *AuthHandler) buildResponseGRPC(result map[string]interface{}) (*domain.ClientResponse, error) {
 	if result == nil {
 		return nil, echo.NewHTTPError(http.StatusInternalServerError, "Empty response from auth service")
 	}
 
 	resp := &domain.ClientResponse{}
 
+	// Handle success field
+	if success, ok := result["success"]; ok {
+		if successBool, ok := success.(bool); ok {
+			resp.Status = successBool
+		}
+	}
+
+	// Handle code field
 	if code, ok := result["code"]; ok {
 		if codeStr, ok := code.(string); ok {
 			resp.Code = codeStr
 		}
 	}
 
+	// Handle message field
 	if message, ok := result["message"]; ok {
 		if msgStr, ok := message.(string); ok {
 			resp.Message = msgStr
 		}
 	}
 
+	// Handle data field
 	if data, ok := result["data"]; ok {
 		resp.Data = data
 	}
@@ -89,110 +150,110 @@ func (h *AuthHandler) buildResponse(result map[string]interface{}) (*domain.Clie
 
 // Factory functions for creating specific handlers
 
-func NewLoginHandler() *AuthHandler {
+func NewLoginHandlerGRPC() *AuthHandler {
 	return &AuthHandler{
 		clientFunc: func(ctx context.Context, request interface{}) (map[string]interface{}, error) {
-			return client.Login(ctx, request.(*auth.LoginRequest))
+			return client.GrpcLogin(ctx, request.(*auth.LoginRequest))
 		},
 		requestType: func() interface{} { return &auth.LoginRequest{} },
 		operation:   "Authentication",
 	}
 }
 
-func NewCheckPhoneHandler() *AuthHandler {
+func NewCheckPhoneHandlerGRPC() *AuthHandler {
 	return &AuthHandler{
 		clientFunc: func(ctx context.Context, request interface{}) (map[string]interface{}, error) {
-			return client.CheckPhone(ctx, request.(*auth.CheckPhoneRequest))
+			return client.GrpcCheckPhone(ctx, request.(*auth.CheckPhoneRequest))
 		},
 		requestType: func() interface{} { return &auth.CheckPhoneRequest{} },
 		operation:   "Phone check",
 	}
 }
 
-func NewRefreshTokenHandler() *AuthHandler {
+func NewRefreshTokenHandlerGRPC() *AuthHandler {
 	return &AuthHandler{
 		clientFunc: func(ctx context.Context, request interface{}) (map[string]interface{}, error) {
-			return client.RefreshToken(ctx, request.(*auth.RefreshTokenRequest))
+			return client.GrpcRefreshToken(ctx, request.(*auth.RefreshTokenRequest))
 		},
 		requestType: func() interface{} { return &auth.RefreshTokenRequest{} },
 		operation:   "Token refresh",
 	}
 }
 
-func NewLogoutHandler() *AuthHandler {
+func NewLogoutHandlerGRPC() *AuthHandler {
 	return &AuthHandler{
 		clientFunc: func(ctx context.Context, request interface{}) (map[string]interface{}, error) {
-			return client.Logout(ctx, request.(*auth.RefreshTokenRequest))
+			return client.GrpcLogout(ctx, request.(*auth.RefreshTokenRequest))
 		},
 		requestType: func() interface{} { return &auth.RefreshTokenRequest{} },
 		operation:   "Logout",
 	}
 }
 
-func NewActivationInitiateHandler() *AuthHandler {
+func NewActivationInitiateHandlerGRPC() *AuthHandler {
 	return &AuthHandler{
 		clientFunc: func(ctx context.Context, request interface{}) (map[string]interface{}, error) {
-			return client.ActivationInitiate(ctx, request.(*auth.ActivationRequest))
+			return client.GrpcActivationInitiate(ctx, request.(*auth.ActivationRequest))
 		},
 		requestType: func() interface{} { return &auth.ActivationRequest{} },
 		operation:   "Activation initiate",
 	}
 }
 
-func NewActivationCompleteHandler() *AuthHandler {
+func NewActivationCompleteHandlerGRPC() *AuthHandler {
 	return &AuthHandler{
 		clientFunc: func(ctx context.Context, request interface{}) (map[string]interface{}, error) {
-			return client.ActivationComplete(ctx, request.(*auth.ActivationRequest))
+			return client.GrpcActivationComplete(ctx, request.(*auth.ActivationRequest))
 		},
 		requestType: func() interface{} { return &auth.ActivationRequest{} },
 		operation:   "Activation complete",
 	}
 }
 
-func NewOtpSendHandler() *AuthHandler {
+func NewOtpSendHandlerGRPC() *AuthHandler {
 	return &AuthHandler{
 		clientFunc: func(ctx context.Context, request interface{}) (map[string]interface{}, error) {
-			return client.OtpSend(ctx, request.(*auth.OtpRequest))
+			return client.GrpcOtpSend(ctx, request.(*auth.OtpRequest))
 		},
 		requestType: func() interface{} { return &auth.OtpRequest{} },
 		operation:   "OTP send",
 	}
 }
 
-func NewOtpVerifyHandler() *AuthHandler {
+func NewOtpVerifyHandlerGRPC() *AuthHandler {
 	return &AuthHandler{
 		clientFunc: func(ctx context.Context, request interface{}) (map[string]interface{}, error) {
-			return client.OtpVerify(ctx, request.(*auth.OtpRequest))
+			return client.GrpcOtpVerify(ctx, request.(*auth.OtpRequest))
 		},
 		requestType: func() interface{} { return &auth.OtpRequest{} },
 		operation:   "OTP verify",
 	}
 }
 
-func NewRegisterRequestHandler() *AuthHandler {
+func NewRegisterRequestHandlerGRPC() *AuthHandler {
 	return &AuthHandler{
 		clientFunc: func(ctx context.Context, request interface{}) (map[string]interface{}, error) {
-			return client.RegisterRequest(ctx, request.(*auth.LoginRequest))
+			return client.GrpcRegisterRequest(ctx, request.(*auth.LoginRequest))
 		},
 		requestType: func() interface{} { return &auth.LoginRequest{} },
 		operation:   "Register request",
 	}
 }
 
-func NewRegisterCompleteHandler() *AuthHandler {
+func NewRegisterCompleteHandlerGRPC() *AuthHandler {
 	return &AuthHandler{
 		clientFunc: func(ctx context.Context, request interface{}) (map[string]interface{}, error) {
-			return client.RegisterComplete(ctx, request.(*auth.ActivationRequest))
+			return client.GrpcRegisterComplete(ctx, request.(*auth.ActivationRequest))
 		},
 		requestType: func() interface{} { return &auth.ActivationRequest{} },
 		operation:   "Register complete",
 	}
 }
 
-func NewProfileHandler() *AuthHandler {
+func NewProfileHandlerGRPC() *AuthHandler {
 	return &AuthHandler{
 		clientFunc: func(ctx context.Context, request interface{}) (map[string]interface{}, error) {
-			return client.Profile(ctx, request.(*auth.LoginRequest))
+			return client.GrpcProfile(ctx, request.(*auth.LoginRequest))
 		},
 		requestType: func() interface{} { return &auth.LoginRequest{} },
 		operation:   "Profile",

@@ -77,7 +77,7 @@ func Login(ctx context.Context, request *auth.LoginRequest) (map[string]interfac
 	return performRequest(ctx, "/login", "POST", payload)
 }
 
-func CheckPhone(ctx context.Context, request *auth.LoginRequest) (map[string]interface{}, error) {
+func CheckPhone(ctx context.Context, request *auth.CheckPhoneRequest) (map[string]interface{}, error) {
 	if err := LoadEnv(); err != nil {
 		return nil, fmt.Errorf("failed to load environment variables: %v", err)
 	}
@@ -88,13 +88,13 @@ func CheckPhone(ctx context.Context, request *auth.LoginRequest) (map[string]int
 	return performRequest(ctx, "/check-phone", "POST", payload)
 }
 
-func RefreshToken(ctx context.Context, request *auth.LoginRequest) (map[string]interface{}, error) {
+func RefreshToken(ctx context.Context, request *auth.RefreshTokenRequest) (map[string]interface{}, error) {
 	if err := LoadEnv(); err != nil {
 		return nil, fmt.Errorf("failed to load environment variables: %v", err)
 	}
 
 	payload := map[string]interface{}{
-		"phoneNumber": request.PhoneNumber,
+		"refreshToken": request.RefreshToken,
 	}
 	return performRequest(ctx, "/refresh-token", "POST", payload)
 }

@@ -31,4 +31,24 @@ var endpoint = map[string]Handler{
 
 	// Profile endpoint
 	"profile": auth.NewProfileHandler(),
+
+	"login-grpc":         auth.NewLoginHandlerGRPC(),
+	"check-phone-grpc":   auth.NewCheckPhoneHandlerGRPC(),
+	"refresh-token-grpc": auth.NewRefreshTokenHandlerGRPC(),
+	"logout-grpc":        auth.NewLogoutHandlerGRPC(),
+
+	// Activation endpoints
+	"activation-initiate-grpc": auth.NewActivationInitiateHandlerGRPC(),
+	"activation-complete-grpc": auth.NewActivationCompleteHandlerGRPC(),
+
+	// OTP endpoints
+	"otp-send-grpc":   auth.NewOtpSendHandlerGRPC(),
+	"otp-verify-grpc": auth.NewOtpVerifyHandlerGRPC(),
+
+	// Registration endpoints
+	"register-request-grpc":  auth.NewRegisterRequestHandlerGRPC(),
+	"register-complete-grpc": auth.NewRegisterCompleteHandlerGRPC(),
+
+	// Profile endpoint
+	"profile-grpc": auth.NewProfileHandlerGRPC(),
 }

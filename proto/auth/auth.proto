@@ -1,0 +1,202 @@
+syntax = "proto3";
+
+package auth;
+
+option go_package = "auth-service/proto/auth";
+
+// Service definition
+service AuthService {
+  rpc CheckPhone(CheckPhoneRequest) returns (CheckPhoneResponse);
+  rpc Login(LoginRequest) returns (LoginResponse);
+  rpc SendOTP(SendOTPRequest) returns (StandardResponse);
+  rpc VerifyOTP(VerifyOTPRequest) returns (StandardResponse);
+  rpc Register(RegisterRequest) returns (StandardResponse);
+  rpc CompleteRegistration(CompleteRegistrationRequest) returns (LoginResponse);
+  rpc InitiateActivation(InitiateActivationRequest) returns (StandardResponse);
+  rpc CompleteActivation(CompleteActivationRequest) returns (StandardResponse);
+  rpc RefreshToken(RefreshTokenRequest) returns (RefreshTokenResponse);
+  rpc Logout(LogoutRequest) returns (StandardResponse);
+}
+
+// Request messages
+message CheckPhoneRequest {
+  string phone_number = 1;
+  string lang = 2; // Language preference
+}
+
+message LoginRequest {
+  string phone_number = 1;
+  string password = 2;
+  string lang = 3;
+}
+
+message SendOTPRequest {
+  string phone_number = 1;
+  string lang = 2;
+}
+
+message VerifyOTPRequest {
+  string phone_number = 1;
+  string otp_code = 2;
+  string lang = 3;
+}
+
+message RegisterRequest {
+  string phone_number = 1;
+  string lang = 2;
+}
+
+message CompleteRegistrationRequest {
+  string phone_number = 1;
+  string password = 2;
+  string referral_code = 3; // optional
+  string full_name = 4;
+  string nick_name = 5;
+  string birth_place = 6;
+  string birth_date = 7;
+  string gender = 8;
+  string religion = 9;
+  string address = 10;
+  string rt = 11;
+  string rw = 12;
+  string province = 13;
+  string city = 14;
+  string district = 15;
+  string sub_district = 16;
+  string postal_code = 17;
+  string npwp = 18;
+  string email = 19;
+  string occupation = 20;
+  string fund_purpose = 21;
+  string fund_source = 22;
+  string annual_income = 23;
+  string lang = 24;
+}
+
+message InitiateActivationRequest {
+  string phone_number = 1;
+  string account_no = 2;
+  string nik = 3;
+  string birth_date = 4;
+  string mother_name = 5;
+  string lang = 6;
+}
+
+message CompleteActivationRequest {
+  string phone_number = 1;
+  string password = 2;
+  string full_name = 3;
+  string nick_name = 4;
+  string birth_place = 5;
+  string birth_date = 6;
+  string gender = 7;
+  string religion = 8;
+  string address = 9;
+  string rt = 10;
+  string rw = 11;
+  string province = 12;
+  string city = 13;
+  string district = 14;
+  string sub_district = 15;
+  string postal_code = 16;
+  string npwp = 17;
+  string email = 18;
+  string occupation = 19;
+  string fund_purpose = 20;
+  string fund_source = 21;
+  string annual_income = 22;
+  string lang = 23;
+}
+
+message RefreshTokenRequest {
+  string refresh_token = 1;
+  string lang = 2;
+}
+
+message LogoutRequest {
+  string refresh_token = 1;
+  string lang = 2;
+}
+
+// Response messages
+message CheckPhoneResponse {
+  bool success = 1;
+  string message = 2;
+  string code = 3;
+}
+
+message LoginResponse {
+  bool success = 1;
+  string message = 2;
+  string code = 3;
+  AuthTokens data = 4;
+}
+
+message RefreshTokenResponse {
+  bool success = 1;
+  string message = 2;
+  string code = 3;
+  AuthTokens data = 4;
+}
+
+message StandardResponse {
+  bool success = 1;
+  string message = 2;
+  string code = 3;
+}
+
+// Data structures
+message AuthTokens {
+  string access_token = 1;
+  string refresh_token = 2;
+}
+
+// Database models as proto messages (for internal use)
+message User {
+  string id = 1;
+  string phone_number = 2;
+  string password_hash = 3;
+  string account_no = 4;
+  string nik = 5;
+  string birth_date = 6;
+  string mother_name = 7;
+  bool is_activated = 8;
+  bool is_active = 9;
+}
+
+message UserFulfillment {
+  string id = 1;
+  string user_id = 2;
+  string full_name = 3;
+  string nick_name = 4;
+  string birth_place = 5;
+  string birth_date = 6;
+  string gender = 7;
+  string religion = 8;
+  string address = 9;
+  string rt = 10;
+  string rw = 11;
+  string province = 12;
+  string city = 13;
+  string district = 14;
+  string sub_district = 15;
+  string postal_code = 16;
+  string npwp = 17;
+  string email = 18;
+  string occupation = 19;
+  string fund_purpose = 20;
+  string fund_source = 21;
+  string annual_income = 22;
+}
+
+message OtpRequest {
+  string id = 1;
+  string phone_number = 2;
+  string otp_code = 3;
+}
+
+message RefreshToken {
+  string id = 1;
+  string user_id = 2;
+  string token = 3;
+}
