@@ -2,119 +2,61 @@ package client
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"os"
-	"sync"
 
-	"github.com/joho/godotenv"
-
+	"gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/config"
 	"gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/domain/auth"
 	rest "gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/util/client"
 )
 
-var (
-	loadEnvOnce sync.Once
-	envLoadErr  error
-)
-
-func LoadEnv() error {
-	loadEnvOnce.Do(func() {
-		envLoadErr = godotenv.Load()
-	})
-	if envLoadErr != nil {
-		return fmt.Errorf("error loading .env file: %v", envLoadErr)
-	}
-	return nil
+type RestAuthClient struct {
+	client  *rest.RestClient
+	baseURL string
 }
 
-type InitClient struct {
-	Client  *rest.RestClient
-	BaseURL string
-	ApiKey  string
+func NewRestAuthClient() *RestAuthClient {
+	cfg := config.Load()
+	return &RestAuthClient{
+		client:  rest.NewRestClient(""),
+		baseURL: cfg.AuthServiceBaseURL,
+	}
 }
 
-func InitializeClient() (InitClient, error) {
-	baseURL := os.Getenv("AUTH_SERVICE_BASE_URL")
-	apiKey := ""
-	if baseURL == "" {
-		return InitClient{}, errors.New("environment variables AUTH_SERVICE_BASE_URL not set")
-	}
-
-	client := rest.NewRestClient(apiKey)
-	return InitClient{
-		Client:  client,
-		BaseURL: baseURL,
-		ApiKey:  apiKey,
-	}, nil
+func (c *RestAuthClient) performRequest(ctx context.Context, endpoint string, Method string, payload map[string]interface{}) (map[string]interface{}, error) {
+	url := fmt.Sprintf("%s%s", c.baseURL, endpoint)
+	return c.client.CallAPI(ctx, Method, url, payload)
 }
 
-func performRequest(ctx context.Context, endpoint string, Method string, payload map[string]interface{}) (map[string]interface{}, error) {
-	client, err := InitializeClient()
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize client: %v", err)
-	}
-
-	url := fmt.Sprintf("%s%s", client.BaseURL, endpoint)
-
-	resClient, err := client.Client.CallAPI(ctx, Method, url, payload)
-	if err != nil {
-		return nil, err
-	}
-
-	return resClient, nil
-}
-
-func Login(ctx context.Context, request *auth.LoginRequest) (map[string]interface{}, error) {
-	if err := LoadEnv(); err != nil {
-		return nil, fmt.Errorf("failed to load environment variables: %v", err)
-	}
-
+func (c *RestAuthClient) Login(ctx context.Context, request *auth.LoginRequest) (map[string]interface{}, error) {
 	payload := map[string]interface{}{
 		"phoneNumber": request.PhoneNumber,
 		"password":    request.Password,
 	}
-	return performRequest(ctx, "/login", "POST", payload)
+	return c.performRequest(ctx, "/login", "POST", payload)
 }
 
-func CheckPhone(ctx context.Context, request *auth.CheckPhoneRequest) (map[string]interface{}, error) {
-	if err := LoadEnv(); err != nil {
-		return nil, fmt.Errorf("failed to load environment variables: %v", err)
-	}
-
+func (c *RestAuthClient) CheckPhone(ctx context.Context, request *auth.CheckPhoneRequest) (map[string]interface{}, error) {
 	payload := map[string]interface{}{
 		"phoneNumber": request.PhoneNumber,
 	}
-	return performRequest(ctx, "/check-phone", "POST", payload)
+	return c.performRequest(ctx, "/check-phone", "POST", payload)
 }
 
-func RefreshToken(ctx context.Context, request *auth.RefreshTokenRequest) (map[string]interface{}, error) {
-	if err := LoadEnv(); err != nil {
-		return nil, fmt.Errorf("failed to load environment variables: %v", err)
-	}
-
+func (c *RestAuthClient) RefreshToken(ctx context.Context, request *auth.RefreshTokenRequest) (map[string]interface{}, error) {
 	payload := map[string]interface{}{
 		"refreshToken": request.RefreshToken,
 	}
-	return performRequest(ctx, "/refresh-token", "POST", payload)
+	return c.performRequest(ctx, "/refresh-token", "POST", payload)
 }
 
-func Logout(ctx context.Context, request *auth.RefreshTokenRequest) (map[string]interface{}, error) {
-	if err := LoadEnv(); err != nil {
-		return nil, fmt.Errorf("failed to load environment variables: %v", err)
-	}
-
+func (c *RestAuthClient) Logout(ctx context.Context, request *auth.RefreshTokenRequest) (map[string]interface{}, error) {
 	payload := map[string]interface{}{
 		"refreshToken": request.RefreshToken,
 	}
-	return performRequest(ctx, "/logout", "POST", payload)
+	return c.performRequest(ctx, "/logout", "POST", payload)
 }
 
-func ActivationInitiate(ctx context.Context, request *auth.ActivationRequest) (map[string]interface{}, error) {
-	if err := LoadEnv(); err != nil {
-		return nil, fmt.Errorf("failed to load environment variables: %v", err)
-	}
-
+func (c *RestAuthClient) ActivationInitiate(ctx context.Context, request *auth.ActivationRequest) (map[string]interface{}, error) {
 	payload := map[string]interface{}{
 		"phoneNumber": request.PhoneNumber,
 		"accountNo":   request.AccountNo,
@@ -122,14 +64,10 @@ func ActivationInitiate(ctx context.Context, request *auth.ActivationRequest) (m
 		"birthDate":   request.BirthDate,
 		"motherName":  request.MotherName,
 	}
-	return performRequest(ctx, "/activation/initiate", "POST", payload)
+	return c.performRequest(ctx, "/activation/initiate", "POST", payload)
 }
 
-func ActivationComplete(ctx context.Context, request *auth.ActivationRequest) (map[string]interface{}, error) {
-	if err := LoadEnv(); err != nil {
-		return nil, fmt.Errorf("failed to load environment variables: %v", err)
-	}
-
+func (c *RestAuthClient) ActivationComplete(ctx context.Context, request *auth.ActivationRequest) (map[string]interface{}, error) {
 	payload := map[string]interface{}{
 		"phoneNumber":  request.PhoneNumber,
 		"password":     request.Password,
@@ -154,49 +92,32 @@ func ActivationComplete(ctx context.Context, request *auth.ActivationRequest) (m
 		"fundSource":   request.FundSource,
 		"annualIncome": request.AnnualIncome,
 	}
-	return performRequest(ctx, "/activation/complete", "POST", payload)
+	return c.performRequest(ctx, "/activation/complete", "POST", payload)
 }
 
-func OtpSend(ctx context.Context, request *auth.OtpRequest) (map[string]interface{}, error) {
-	if err := LoadEnv(); err != nil {
-		return nil, fmt.Errorf("failed to load environment variables: %v", err)
-	}
-
+func (c *RestAuthClient) OtpSend(ctx context.Context, request *auth.OtpRequest) (map[string]interface{}, error) {
 	payload := map[string]interface{}{
 		"phoneNumber": request.PhoneNumber,
 	}
-	return performRequest(ctx, "/otp/send", "POST", payload)
+	return c.performRequest(ctx, "/otp/send", "POST", payload)
 }
 
-func OtpVerify(ctx context.Context, request *auth.OtpRequest) (map[string]interface{}, error) {
-	if err := LoadEnv(); err != nil {
-		return nil, fmt.Errorf("failed to load environment variables: %v", err)
-	}
-
+func (c *RestAuthClient) OtpVerify(ctx context.Context, request *auth.OtpRequest) (map[string]interface{}, error) {
 	payload := map[string]interface{}{
 		"phoneNumber": request.PhoneNumber,
 		"otpCode":     request.OtpCode,
 	}
-	return performRequest(ctx, "/otp/verify", "POST", payload)
+	return c.performRequest(ctx, "/otp/verify", "POST", payload)
 }
 
-func RegisterRequest(ctx context.Context, request *auth.LoginRequest) (map[string]interface{}, error) {
-	if err := LoadEnv(); err != nil {
-		return nil, fmt.Errorf("failed to load environment variables: %v", err)
-	}
-
+func (c *RestAuthClient) RegisterRequest(ctx context.Context, request *auth.LoginRequest) (map[string]interface{}, error) {
 	payload := map[string]interface{}{
 		"phoneNumber": request.PhoneNumber,
 	}
-	return performRequest(ctx, "/register/request", "POST", payload)
+	return c.performRequest(ctx, "/register/request", "POST", payload)
 }
 
-func RegisterComplete(ctx context.Context, request *auth.ActivationRequest) (map[string]interface{}, error) {
-	if err := LoadEnv(); err != nil {
-		return nil, fmt.Errorf("failed to load environment variables: %v", err)
-	}
-
-	// Create payload matching the curl request structure
+func (c *RestAuthClient) RegisterComplete(ctx context.Context, request *auth.ActivationRequest) (map[string]interface{}, error) {
 	payload := map[string]interface{}{
 		"phoneNumber":  request.PhoneNumber,
 		"password":     request.Password,
@@ -222,15 +143,9 @@ func RegisterComplete(ctx context.Context, request *auth.ActivationRequest) (map
 		"fundSource":   request.FundSource,
 		"annualIncome": request.AnnualIncome,
 	}
-
-	return performRequest(ctx, "/register/complete", "POST", payload)
+	return c.performRequest(ctx, "/register/complete", "POST", payload)
 }
 
-func Profile(ctx context.Context, request *auth.LoginRequest) (map[string]interface{}, error) {
-	if err := LoadEnv(); err != nil {
-		return nil, fmt.Errorf("failed to load environment variables: %v", err)
-	}
-
-	payload := map[string]interface{}{}
-	return performRequest(ctx, "/profile", "GET", payload)
+func (c *RestAuthClient) Profile(ctx context.Context, request *auth.LoginRequest) (map[string]interface{}, error) {
+	return c.performRequest(ctx, "/profile", "GET", nil)
 }

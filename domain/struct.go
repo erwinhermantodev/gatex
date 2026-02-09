@@ -1,5 +1,7 @@
 package domain
 
+import "github.com/go-playground/validator/v10"
+
 type ClientResponse struct {
 	Status  bool        `json:"status"`
 	Code    string      `json:"code"`
@@ -26,4 +28,15 @@ func NewErrorResponse(code, message string) *ClientResponse {
 		Code:    code,
 		Message: message,
 	}
+}
+
+type CustomValidator struct {
+	Validator *validator.Validate
+}
+
+func (cv *CustomValidator) Validate(i interface{}) error {
+	if cv.Validator == nil {
+		return nil
+	}
+	return cv.Validator.Struct(i)
 }

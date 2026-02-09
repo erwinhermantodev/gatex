@@ -11,6 +11,7 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 	"golang.org/x/time/rate"
 
+	"gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/domain"
 	customMw "gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/route/middleware"
 	"gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/util"
 )
@@ -25,31 +26,24 @@ type Route struct {
 	Middleware []string `json:"middleware"`
 }
 
-type CustomValidator struct {
-	validator *validator.Validate
-}
-
-func (cv *CustomValidator) Validate(i interface{}) error {
-	return cv.validator.Struct(i)
-}
+// Redundant definition removed, moved to domain
 
 // Init gateway router
 func Init() *echo.Echo {
 	routes := loadRoutes("./route/gate/")
 
 	e := echo.New()
-	e.Validator = &CustomValidator{validator: validator.New()}
+	e.Validator = &domain.CustomValidator{Validator: validator.New()}
 
-	// store := NewRateLimiterStore()
+	store := NewRateLimiterStore()
 	e.Use(CacheControlMiddleware)
-	// e.Use(rateLimiterMiddleware(store))
+	e.Use(rateLimiterMiddleware(store))
 	// Set Bundle MiddleWare
 	e.Use(middleware.RequestID())
 	e.Pre(middleware.RemoveTrailingSlash())
 	e.Use(middleware.Recover())
 	e.Use(middleware.Gzip())
 	e.Use(middleware.Logger())
-	e.Use(middleware.Recover())
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
 		AllowOrigins:  []string{"*"},
 		AllowHeaders:  []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, echo.HeaderAuthorization, echo.HeaderContentLength, echo.HeaderAcceptEncoding, echo.HeaderAccessControlAllowOrigin, echo.HeaderAccessControlAllowHeaders, echo.HeaderContentDisposition, "X-Request-Id", "device-id", "X-Summary", "X-Account-Number", "X-Business-Name", "client-secret", "X-CSRF-Token", "x-api-key", "Cache-Control", "no-store, no-cache, must-revalidate, private"},

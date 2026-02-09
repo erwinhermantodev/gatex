@@ -20,7 +20,8 @@ type RequestValidator interface {
 
 // AuthHandler is a generic handler that can handle multiple auth endpoints
 type AuthHandler struct {
-	clientFunc  ClientFunc
+	client      client.AuthClient
+	clientFunc  func(ctx context.Context, client client.AuthClient, request interface{}) (map[string]interface{}, error)
 	requestType func() interface{} // Factory function to create new request instance
 	operation   string             // For error messages
 }
@@ -46,7 +47,7 @@ func (h *AuthHandler) Handle(c echo.Context) error {
 	}
 
 	// Call the client function
-	result, err := h.clientFunc(ctx, req)
+	result, err := h.clientFunc(ctx, h.client, req)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, h.operation+" failed")
 	}
@@ -87,114 +88,79 @@ func (h *AuthHandler) buildResponse(result map[string]interface{}) (*domain.Clie
 	return resp, nil
 }
 
-// Factory functions for creating specific handlers
+// Factory functions for creating specific handlers using REST client
+
+func createRestHandler(clientFunc func(ctx context.Context, client client.AuthClient, request interface{}) (map[string]interface{}, error), requestFactory func() interface{}, operation string) *AuthHandler {
+	return &AuthHandler{
+		client:      client.NewRestAuthClient(),
+		clientFunc:  clientFunc,
+		requestType: requestFactory,
+		operation:   operation,
+	}
+}
 
 func NewLoginHandler() *AuthHandler {
-	return &AuthHandler{
-		clientFunc: func(ctx context.Context, request interface{}) (map[string]interface{}, error) {
-			return client.Login(ctx, request.(*auth.LoginRequest))
-		},
-		requestType: func() interface{} { return &auth.LoginRequest{} },
-		operation:   "Authentication",
-	}
+	return createRestHandler(func(ctx context.Context, c client.AuthClient, req interface{}) (map[string]interface{}, error) {
+		return c.Login(ctx, req.(*auth.LoginRequest))
+	}, func() interface{} { return &auth.LoginRequest{} }, "Authentication")
 }
 
 func NewCheckPhoneHandler() *AuthHandler {
-	return &AuthHandler{
-		clientFunc: func(ctx context.Context, request interface{}) (map[string]interface{}, error) {
-			return client.CheckPhone(ctx, request.(*auth.CheckPhoneRequest))
-		},
-		requestType: func() interface{} { return &auth.CheckPhoneRequest{} },
-		operation:   "Phone check",
-	}
+	return createRestHandler(func(ctx context.Context, c client.AuthClient, req interface{}) (map[string]interface{}, error) {
+		return c.CheckPhone(ctx, req.(*auth.CheckPhoneRequest))
+	}, func() interface{} { return &auth.CheckPhoneRequest{} }, "Phone check")
 }
 
 func NewRefreshTokenHandler() *AuthHandler {
-	return &AuthHandler{
-		clientFunc: func(ctx context.Context, request interface{}) (map[string]interface{}, error) {
-			return client.RefreshToken(ctx, request.(*auth.RefreshTokenRequest))
-		},
-		requestType: func() interface{} { return &auth.RefreshTokenRequest{} },
-		operation:   "Token refresh",
-	}
+	return createRestHandler(func(ctx context.Context, c client.AuthClient, req interface{}) (map[string]interface{}, error) {
+		return c.RefreshToken(ctx, req.(*auth.RefreshTokenRequest))
+	}, func() interface{} { return &auth.RefreshTokenRequest{} }, "Token refresh")
 }
 
 func NewLogoutHandler() *AuthHandler {
-	return &AuthHandler{
-		clientFunc: func(ctx context.Context, request interface{}) (map[string]interface{}, error) {
-			return client.Logout(ctx, request.(*auth.RefreshTokenRequest))
-		},
-		requestType: func() interface{} { return &auth.RefreshTokenRequest{} },
-		operation:   "Logout",
-	}
+	return createRestHandler(func(ctx context.Context, c client.AuthClient, req interface{}) (map[string]interface{}, error) {
+		return c.Logout(ctx, req.(*auth.RefreshTokenRequest))
+	}, func() interface{} { return &auth.RefreshTokenRequest{} }, "Logout")
 }
 
 func NewActivationInitiateHandler() *AuthHandler {
-	return &AuthHandler{
-		clientFunc: func(ctx context.Context, request interface{}) (map[string]interface{}, error) {
-			return client.ActivationInitiate(ctx, request.(*auth.ActivationRequest))
-		},
-		requestType: func() interface{} { return &auth.ActivationRequest{} },
-		operation:   "Activation initiate",
-	}
+	return createRestHandler(func(ctx context.Context, c client.AuthClient, req interface{}) (map[string]interface{}, error) {
+		return c.ActivationInitiate(ctx, req.(*auth.ActivationRequest))
+	}, func() interface{} { return &auth.ActivationRequest{} }, "Activation initiate")
 }
 
 func NewActivationCompleteHandler() *AuthHandler {
-	return &AuthHandler{
-		clientFunc: func(ctx context.Context, request interface{}) (map[string]interface{}, error) {
-			return client.ActivationComplete(ctx, request.(*auth.ActivationRequest))
-		},
-		requestType: func() interface{} { return &auth.ActivationRequest{} },
-		operation:   "Activation complete",
-	}
+	return createRestHandler(func(ctx context.Context, c client.AuthClient, req interface{}) (map[string]interface{}, error) {
+		return c.ActivationComplete(ctx, req.(*auth.ActivationRequest))
+	}, func() interface{} { return &auth.ActivationRequest{} }, "Activation complete")
 }
 
 func NewOtpSendHandler() *AuthHandler {
-	return &AuthHandler{
-		clientFunc: func(ctx context.Context, request interface{}) (map[string]interface{}, error) {
-			return client.OtpSend(ctx, request.(*auth.OtpRequest))
-		},
-		requestType: func() interface{} { return &auth.OtpRequest{} },
-		operation:   "OTP send",
-	}
+	return createRestHandler(func(ctx context.Context, c client.AuthClient, req interface{}) (map[string]interface{}, error) {
+		return c.OtpSend(ctx, req.(*auth.OtpRequest))
+	}, func() interface{} { return &auth.OtpRequest{} }, "OTP send")
 }
 
 func NewOtpVerifyHandler() *AuthHandler {
-	return &AuthHandler{
-		clientFunc: func(ctx context.Context, request interface{}) (map[string]interface{}, error) {
-			return client.OtpVerify(ctx, request.(*auth.OtpRequest))
-		},
-		requestType: func() interface{} { return &auth.OtpRequest{} },
-		operation:   "OTP verify",
-	}
+	return createRestHandler(func(ctx context.Context, c client.AuthClient, req interface{}) (map[string]interface{}, error) {
+		return c.OtpVerify(ctx, req.(*auth.OtpRequest))
+	}, func() interface{} { return &auth.OtpRequest{} }, "OTP verify")
 }
 
 func NewRegisterRequestHandler() *AuthHandler {
-	return &AuthHandler{
-		clientFunc: func(ctx context.Context, request interface{}) (map[string]interface{}, error) {
-			return client.RegisterRequest(ctx, request.(*auth.LoginRequest))
-		},
-		requestType: func() interface{} { return &auth.LoginRequest{} },
-		operation:   "Register request",
-	}
+	return createRestHandler(func(ctx context.Context, c client.AuthClient, req interface{}) (map[string]interface{}, error) {
+		return c.RegisterRequest(ctx, req.(*auth.LoginRequest))
+	}, func() interface{} { return &auth.LoginRequest{} }, "Register request")
 }
 
 func NewRegisterCompleteHandler() *AuthHandler {
-	return &AuthHandler{
-		clientFunc: func(ctx context.Context, request interface{}) (map[string]interface{}, error) {
-			return client.RegisterComplete(ctx, request.(*auth.ActivationRequest))
-		},
-		requestType: func() interface{} { return &auth.ActivationRequest{} },
-		operation:   "Register complete",
-	}
+	return createRestHandler(func(ctx context.Context, c client.AuthClient, req interface{}) (map[string]interface{}, error) {
+		return c.RegisterComplete(ctx, req.(*auth.ActivationRequest))
+	}, func() interface{} { return &auth.ActivationRequest{} }, "Register complete")
 }
 
 func NewProfileHandler() *AuthHandler {
-	return &AuthHandler{
-		clientFunc: func(ctx context.Context, request interface{}) (map[string]interface{}, error) {
-			return client.Profile(ctx, request.(*auth.LoginRequest))
-		},
-		requestType: func() interface{} { return &auth.LoginRequest{} },
-		operation:   "Profile",
-	}
+	return createRestHandler(func(ctx context.Context, c client.AuthClient, req interface{}) (map[string]interface{}, error) {
+		return c.Profile(ctx, req.(*auth.LoginRequest))
+	}, func() interface{} { return &auth.LoginRequest{} }, "Profile")
 }

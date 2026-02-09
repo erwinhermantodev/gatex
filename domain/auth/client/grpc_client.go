@@ -5,92 +5,56 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"os"
 	"sync"
 
-	"google.golang.org/grpc"
-
-	pb "gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/proto/auth" // Adjust this import path to match your proto package
-
+	"gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/config"
 	"gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/domain/auth"
+	pb "gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/proto/auth"
 	util "gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/util/client"
+	"google.golang.org/grpc"
 )
+
+type GrpcAuthClient struct {
+	client pb.AuthServiceClient
+	conn   *grpc.ClientConn
+}
 
 var (
-	// loadEnvOnce   sync.Once
-	// envLoadErr    errorRefreshToken
-	grpcClient    pb.AuthServiceClient
-	grpcConn      *grpc.ClientConn
-	clientOnce    sync.Once
-	clientInitErr error
+	grpcInstance *GrpcAuthClient
+	grpcOnce     sync.Once
 )
 
-// func LoadEnv() error {
-// 	loadEnvOnce.Do(func() {
-// 		envLoadErr = godotenv.Load()
-// 	})
-// 	if envLoadErr != nil {
-// 		return fmt.Errorf("error loading .env file: %v", envLoadErr)
-// 	}
-// 	return nil
-// }
-
-// InitializeGRPCClient initializes the gRPC client connection
-func InitializeGRPCClient() (pb.AuthServiceClient, error) {
-	clientOnce.Do(func() {
-		authServiceAddr := os.Getenv("AUTH_SERVICE_GRPC_ADDR")
-		if authServiceAddr == "" {
-			clientInitErr = errors.New("environment variable AUTH_SERVICE_GRPC_ADDR not set")
+func NewGrpcAuthClient() *GrpcAuthClient {
+	grpcOnce.Do(func() {
+		cfg := config.Load()
+		if cfg.AuthServiceGRPCAddr == "" {
+			log.Println("Warning: AUTH_SERVICE_GRPC_ADDR not set")
 			return
 		}
 
-		// Use the utility gRPC client dialer
-		grpcConn = util.Dial(authServiceAddr)
-		grpcClient = pb.NewAuthServiceClient(grpcConn)
+		conn := util.Dial(cfg.AuthServiceGRPCAddr)
+		client := pb.NewAuthServiceClient(conn)
+		grpcInstance = &GrpcAuthClient{
+			client: client,
+			conn:   conn,
+		}
 	})
-
-	if clientInitErr != nil {
-		return nil, clientInitErr
-	}
-
-	return grpcClient, nil
+	return grpcInstance
 }
 
-// CloseGRPCConnection closes the gRPC connection
-func CloseGRPCConnection() error {
-	if grpcConn != nil {
-		return grpcConn.Close()
-	}
-	return nil
-}
-
-// Helper function to get default language
-func getDefaultLang() string {
-	lang := os.Getenv("DEFAULT_LANG")
-	if lang == "" {
-		return "id" // Default to Indonesian
-	}
-	return lang
-}
-
-// Login authenticates a user
-func GrpcLogin(ctx context.Context, request *auth.LoginRequest) (map[string]interface{}, error) {
-	if err := LoadEnv(); err != nil {
-		return nil, fmt.Errorf("failed to load environment variables: %v", err)
+func (c *GrpcAuthClient) Login(ctx context.Context, request *auth.LoginRequest) (map[string]interface{}, error) {
+	if c == nil {
+		return nil, errors.New("gRPC client not initialized")
 	}
 
-	client, err := InitializeGRPCClient()
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize gRPC client: %v", err)
-	}
-
+	cfg := config.Load()
 	req := &pb.LoginRequest{
 		PhoneNumber: request.PhoneNumber,
 		Password:    request.Password,
-		Lang:        getDefaultLang(),
+		Lang:        cfg.DefaultLang,
 	}
 
-	resp, err := client.Login(ctx, req)
+	resp, err := c.client.Login(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("login failed: %v", err)
 	}
@@ -111,26 +75,19 @@ func GrpcLogin(ctx context.Context, request *auth.LoginRequest) (map[string]inte
 	return result, nil
 }
 
-// CheckPhone validates a phone number
-func GrpcCheckPhone(ctx context.Context, request *auth.CheckPhoneRequest) (map[string]interface{}, error) {
-	if err := LoadEnv(); err != nil {
-		return nil, fmt.Errorf("failed to load environment variables: %v", err)
+func (c *GrpcAuthClient) CheckPhone(ctx context.Context, request *auth.CheckPhoneRequest) (map[string]interface{}, error) {
+	if c == nil {
+		return nil, errors.New("gRPC client not initialized")
 	}
 
-	client, err := InitializeGRPCClient()
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize gRPC client: %v", err)
-	}
-
+	cfg := config.Load()
 	req := &pb.CheckPhoneRequest{
 		PhoneNumber: request.PhoneNumber,
-		Lang:        getDefaultLang(),
+		Lang:        cfg.DefaultLang,
 	}
 
-	resp, err := client.CheckPhone(ctx, req)
+	resp, err := c.client.CheckPhone(ctx, req)
 	if err != nil {
-		log.Println("err")
-		log.Println(err)
 		return nil, fmt.Errorf("check phone failed: %v", err)
 	}
 
@@ -141,23 +98,18 @@ func GrpcCheckPhone(ctx context.Context, request *auth.CheckPhoneRequest) (map[s
 	}, nil
 }
 
-// RefreshToken refreshes an access token
-func GrpcRefreshToken(ctx context.Context, request *auth.RefreshTokenRequest) (map[string]interface{}, error) {
-	if err := LoadEnv(); err != nil {
-		return nil, fmt.Errorf("failed to load environment variables: %v", err)
+func (c *GrpcAuthClient) RefreshToken(ctx context.Context, request *auth.RefreshTokenRequest) (map[string]interface{}, error) {
+	if c == nil {
+		return nil, errors.New("gRPC client not initialized")
 	}
 
-	client, err := InitializeGRPCClient()
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize gRPC client: %v", err)
-	}
-
+	cfg := config.Load()
 	req := &pb.RefreshTokenRequest{
 		RefreshToken: request.RefreshToken,
-		Lang:         getDefaultLang(),
+		Lang:         cfg.DefaultLang,
 	}
 
-	resp, err := client.RefreshToken(ctx, req)
+	resp, err := c.client.RefreshToken(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("refresh token failed: %v", err)
 	}
@@ -178,23 +130,18 @@ func GrpcRefreshToken(ctx context.Context, request *auth.RefreshTokenRequest) (m
 	return result, nil
 }
 
-// Logout logs out a user
-func GrpcLogout(ctx context.Context, request *auth.RefreshTokenRequest) (map[string]interface{}, error) {
-	log.Println("InitializeGRPCClient")
-	if err := LoadEnv(); err != nil {
-		return nil, fmt.Errorf("failed to load environment variables: %v", err)
+func (c *GrpcAuthClient) Logout(ctx context.Context, request *auth.RefreshTokenRequest) (map[string]interface{}, error) {
+	if c == nil {
+		return nil, errors.New("gRPC client not initialized")
 	}
 
-	client, err := InitializeGRPCClient()
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize gRPC client: %v", err)
-	}
+	cfg := config.Load()
 	req := &pb.LogoutRequest{
 		RefreshToken: request.RefreshToken,
-		Lang:         getDefaultLang(),
+		Lang:         cfg.DefaultLang,
 	}
 
-	resp, err := client.Logout(ctx, req)
+	resp, err := c.client.Logout(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("logout failed: %v", err)
 	}
@@ -206,27 +153,22 @@ func GrpcLogout(ctx context.Context, request *auth.RefreshTokenRequest) (map[str
 	}, nil
 }
 
-// ActivationInitiate initiates account activation
-func GrpcActivationInitiate(ctx context.Context, request *auth.ActivationRequest) (map[string]interface{}, error) {
-	if err := LoadEnv(); err != nil {
-		return nil, fmt.Errorf("failed to load environment variables: %v", err)
+func (c *GrpcAuthClient) ActivationInitiate(ctx context.Context, request *auth.ActivationRequest) (map[string]interface{}, error) {
+	if c == nil {
+		return nil, errors.New("gRPC client not initialized")
 	}
 
-	client, err := InitializeGRPCClient()
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize gRPC client: %v", err)
-	}
-
+	cfg := config.Load()
 	req := &pb.InitiateActivationRequest{
 		PhoneNumber: request.PhoneNumber,
 		AccountNo:   request.AccountNo,
 		Nik:         request.NIK,
 		BirthDate:   request.BirthDate,
 		MotherName:  request.MotherName,
-		Lang:        getDefaultLang(),
+		Lang:        cfg.DefaultLang,
 	}
 
-	resp, err := client.InitiateActivation(ctx, req)
+	resp, err := c.client.InitiateActivation(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("activation initiate failed: %v", err)
 	}
@@ -238,17 +180,12 @@ func GrpcActivationInitiate(ctx context.Context, request *auth.ActivationRequest
 	}, nil
 }
 
-// ActivationComplete completes account activation
-func GrpcActivationComplete(ctx context.Context, request *auth.ActivationRequest) (map[string]interface{}, error) {
-	if err := LoadEnv(); err != nil {
-		return nil, fmt.Errorf("failed to load environment variables: %v", err)
+func (c *GrpcAuthClient) ActivationComplete(ctx context.Context, request *auth.ActivationRequest) (map[string]interface{}, error) {
+	if c == nil {
+		return nil, errors.New("gRPC client not initialized")
 	}
 
-	client, err := InitializeGRPCClient()
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize gRPC client: %v", err)
-	}
-
+	cfg := config.Load()
 	req := &pb.CompleteActivationRequest{
 		PhoneNumber:  request.PhoneNumber,
 		Password:     request.Password,
@@ -272,10 +209,10 @@ func GrpcActivationComplete(ctx context.Context, request *auth.ActivationRequest
 		FundPurpose:  request.FundPurpose,
 		FundSource:   request.FundSource,
 		AnnualIncome: request.AnnualIncome,
-		Lang:         getDefaultLang(),
+		Lang:         cfg.DefaultLang,
 	}
 
-	resp, err := client.CompleteActivation(ctx, req)
+	resp, err := c.client.CompleteActivation(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("activation complete failed: %v", err)
 	}
@@ -287,23 +224,18 @@ func GrpcActivationComplete(ctx context.Context, request *auth.ActivationRequest
 	}, nil
 }
 
-// OtpSend sends an OTP
-func GrpcOtpSend(ctx context.Context, request *auth.OtpRequest) (map[string]interface{}, error) {
-	if err := LoadEnv(); err != nil {
-		return nil, fmt.Errorf("failed to load environment variables: %v", err)
+func (c *GrpcAuthClient) OtpSend(ctx context.Context, request *auth.OtpRequest) (map[string]interface{}, error) {
+	if c == nil {
+		return nil, errors.New("gRPC client not initialized")
 	}
 
-	client, err := InitializeGRPCClient()
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize gRPC client: %v", err)
-	}
-
+	cfg := config.Load()
 	req := &pb.SendOTPRequest{
 		PhoneNumber: request.PhoneNumber,
-		Lang:        getDefaultLang(),
+		Lang:        cfg.DefaultLang,
 	}
 
-	resp, err := client.SendOTP(ctx, req)
+	resp, err := c.client.SendOTP(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("send OTP failed: %v", err)
 	}
@@ -315,24 +247,19 @@ func GrpcOtpSend(ctx context.Context, request *auth.OtpRequest) (map[string]inte
 	}, nil
 }
 
-// OtpVerify verifies an OTP
-func GrpcOtpVerify(ctx context.Context, request *auth.OtpRequest) (map[string]interface{}, error) {
-	if err := LoadEnv(); err != nil {
-		return nil, fmt.Errorf("failed to load environment variables: %v", err)
+func (c *GrpcAuthClient) OtpVerify(ctx context.Context, request *auth.OtpRequest) (map[string]interface{}, error) {
+	if c == nil {
+		return nil, errors.New("gRPC client not initialized")
 	}
 
-	client, err := InitializeGRPCClient()
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize gRPC client: %v", err)
-	}
-
+	cfg := config.Load()
 	req := &pb.VerifyOTPRequest{
 		PhoneNumber: request.PhoneNumber,
 		OtpCode:     request.OtpCode,
-		Lang:        getDefaultLang(),
+		Lang:        cfg.DefaultLang,
 	}
 
-	resp, err := client.VerifyOTP(ctx, req)
+	resp, err := c.client.VerifyOTP(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("verify OTP failed: %v", err)
 	}
@@ -344,23 +271,18 @@ func GrpcOtpVerify(ctx context.Context, request *auth.OtpRequest) (map[string]in
 	}, nil
 }
 
-// RegisterRequest initiates user registration
-func GrpcRegisterRequest(ctx context.Context, request *auth.LoginRequest) (map[string]interface{}, error) {
-	if err := LoadEnv(); err != nil {
-		return nil, fmt.Errorf("failed to load environment variables: %v", err)
+func (c *GrpcAuthClient) RegisterRequest(ctx context.Context, request *auth.LoginRequest) (map[string]interface{}, error) {
+	if c == nil {
+		return nil, errors.New("gRPC client not initialized")
 	}
 
-	client, err := InitializeGRPCClient()
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize gRPC client: %v", err)
-	}
-
+	cfg := config.Load()
 	req := &pb.RegisterRequest{
 		PhoneNumber: request.PhoneNumber,
-		Lang:        getDefaultLang(),
+		Lang:        cfg.DefaultLang,
 	}
 
-	resp, err := client.Register(ctx, req)
+	resp, err := c.client.Register(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("register request failed: %v", err)
 	}
@@ -372,17 +294,12 @@ func GrpcRegisterRequest(ctx context.Context, request *auth.LoginRequest) (map[s
 	}, nil
 }
 
-// RegisterComplete completes user registration
-func GrpcRegisterComplete(ctx context.Context, request *auth.ActivationRequest) (map[string]interface{}, error) {
-	if err := LoadEnv(); err != nil {
-		return nil, fmt.Errorf("failed to load environment variables: %v", err)
+func (c *GrpcAuthClient) RegisterComplete(ctx context.Context, request *auth.ActivationRequest) (map[string]interface{}, error) {
+	if c == nil {
+		return nil, errors.New("gRPC client not initialized")
 	}
 
-	client, err := InitializeGRPCClient()
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize gRPC client: %v", err)
-	}
-
+	cfg := config.Load()
 	req := &pb.CompleteRegistrationRequest{
 		PhoneNumber:  request.PhoneNumber,
 		Password:     request.Password,
@@ -407,10 +324,10 @@ func GrpcRegisterComplete(ctx context.Context, request *auth.ActivationRequest) 
 		FundPurpose:  request.FundPurpose,
 		FundSource:   request.FundSource,
 		AnnualIncome: request.AnnualIncome,
-		Lang:         getDefaultLang(),
+		Lang:         cfg.DefaultLang,
 	}
 
-	resp, err := client.CompleteRegistration(ctx, req)
+	resp, err := c.client.CompleteRegistration(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("register complete failed: %v", err)
 	}
@@ -431,11 +348,7 @@ func GrpcRegisterComplete(ctx context.Context, request *auth.ActivationRequest) 
 	return result, nil
 }
 
-// Profile gets user profile (this would need to be implemented in your auth service)
-func GrpcProfile(ctx context.Context, request *auth.LoginRequest) (map[string]interface{}, error) {
-	// Note: Profile endpoint is not defined in the protobuf service
-	// You might need to add this to your auth service protobuf definition
-	// For now, returning a placeholder response
+func (c *GrpcAuthClient) Profile(ctx context.Context, request *auth.LoginRequest) (map[string]interface{}, error) {
 	return map[string]interface{}{
 		"success": false,
 		"message": "Profile endpoint not implemented in gRPC service",
