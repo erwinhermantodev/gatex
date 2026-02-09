@@ -13,6 +13,11 @@ type Config struct {
 	AuthServiceBaseURL  string
 	AuthServiceGRPCAddr string
 	DefaultLang         string
+	DBHost              string
+	DBPort              string
+	DBUser              string
+	DBPassword          string
+	DBName              string
 }
 
 var (
@@ -32,6 +37,11 @@ func Load() *Config {
 			AuthServiceBaseURL:  os.Getenv("AUTH_SERVICE_BASE_URL"),
 			AuthServiceGRPCAddr: os.Getenv("AUTH_SERVICE_GRPC_ADDR"),
 			DefaultLang:         getEnv("DEFAULT_LANG", "id"),
+			DBHost:              getEnv("DB_HOST", "localhost"),
+			DBPort:              getEnv("DB_PORT", "5432"),
+			DBUser:              os.Getenv("DB_USER"),
+			DBPassword:          os.Getenv("DB_PASSWORD"),
+			DBName:              os.Getenv("DB_NAME"),
 		}
 	})
 	return instance

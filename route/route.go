@@ -1,7 +1,7 @@
 package route
 
 import (
-	"io/ioutil"
+	"encoding/json"
 	"log"
 	"net/http"
 	"sync"
@@ -11,7 +11,9 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 	"golang.org/x/time/rate"
 
+	"gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/database"
 	"gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/domain"
+	adminHandler "gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/domain/admin/handler"
 	customMw "gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/route/middleware"
 	"gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/util"
 )
@@ -30,7 +32,9 @@ type Route struct {
 
 // Init gateway router
 func Init() *echo.Echo {
-	routes := loadRoutes("./route/gate/")
+	// Initialize Database
+	database.Init()
+	routes := loadRoutesFromDB()
 
 	e := echo.New()
 	e.Validator = &domain.CustomValidator{Validator: validator.New()}
@@ -54,28 +58,58 @@ func Init() *echo.Echo {
 	e.HTTPErrorHandler = util.CustomHTTPErrorHandler
 
 	for _, route := range routes {
-		e.Add(route.Method, route.Path, endpoint[route.Endpoint].Handle, chainMiddleware(route)...)
+		h := NewDynamicHandler(route.Endpoint)
+		e.Add(route.Method, route.Path, h.Handle, chainMiddleware(route)...)
 	}
+
+	// Register Admin API
+	admin := adminHandler.NewAdminHandler()
+	a := e.Group("/admin")
+
+	// Services
+	a.GET("/services", admin.GetServices)
+	a.POST("/services", admin.CreateService)
+	a.PUT("/services/:id", admin.UpdateService)
+	a.DELETE("/services/:id", admin.DeleteService)
+
+	// Routes
+	a.GET("/routes", admin.GetRoutes)
+	a.POST("/routes", admin.CreateRoute)
+	a.PUT("/routes/:id", admin.UpdateRoute)
+	a.DELETE("/routes/:id", admin.DeleteRoute)
+
+	// Proto Mappings
+	a.GET("/proto-mappings", admin.GetProtoMappings)
+	a.POST("/proto-mappings", admin.CreateProtoMapping)
+	a.PUT("/proto-mappings/:id", admin.UpdateProtoMapping)
+	a.DELETE("/proto-mappings/:id", admin.DeleteProtoMapping)
+
+	// Serve Dashboard
+	e.Static("/dashboard", "dashboard/dist")
+	e.File("/dashboard", "dashboard/dist/index.html")
 
 	return e
 }
 
-func loadRoutes(filePath string) []Route {
-	var routes []Route
-	files, err := ioutil.ReadDir(filePath)
-	if err != nil {
-		log.Fatalf("Failed to load file: %v", err)
+func loadRoutesFromDB() []Route {
+	db := database.GetDB()
+	var dbRoutes []database.Route
+	if err := db.Find(&dbRoutes).Error; err != nil {
+		log.Printf("Error loading routes from DB: %v", err)
+		return nil
 	}
-	for _, file := range files {
-		byteFile, err := ioutil.ReadFile(filePath + "/" + file.Name())
-		if err != nil {
-			log.Fatalf("Failed to load file: %v", err)
-		}
-		var tmp []Route
-		if err := util.Json.Unmarshal(byteFile, &tmp); err != nil {
-			log.Fatalf("Failed to marshal file: %v", err)
-		}
-		routes = append(routes, tmp...)
+
+	var routes []Route
+	for _, dr := range dbRoutes {
+		var mw []string
+		_ = json.Unmarshal([]byte(dr.Middleware), &mw)
+		routes = append(routes, Route{
+			Path:       dr.Path,
+			Method:     dr.Method,
+			Tag:        dr.Tag,
+			Endpoint:   dr.EndpointFilter,
+			Middleware: mw,
+		})
 	}
 
 	return routes
