@@ -5,6 +5,8 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/database"
+	"gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/util"
+	"gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/util/metrics"
 )
 
 type AdminHandler struct{}
@@ -33,6 +35,7 @@ func (h *AdminHandler) CreateService(c echo.Context) error {
 	if err := db.Create(service).Error; err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
+	util.LogCreate("Service", "admin", service.Name)
 	return c.JSON(http.StatusCreated, service)
 }
 
@@ -47,6 +50,7 @@ func (h *AdminHandler) UpdateService(c echo.Context) error {
 		return err
 	}
 	db.Save(&service)
+	util.LogUpdate("Service", "admin", service.Name)
 	return c.JSON(http.StatusOK, service)
 }
 
@@ -56,6 +60,7 @@ func (h *AdminHandler) DeleteService(c echo.Context) error {
 	if err := db.Delete(&database.Service{}, id).Error; err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
+	util.LogDelete("Service", "admin", "ID: "+id)
 	return c.NoContent(http.StatusNoContent)
 }
 
@@ -79,6 +84,7 @@ func (h *AdminHandler) CreateRoute(c echo.Context) error {
 	if err := db.Create(route).Error; err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
+	util.LogCreate("Route", "admin", route.Path)
 	return c.JSON(http.StatusCreated, route)
 }
 
@@ -93,6 +99,7 @@ func (h *AdminHandler) UpdateRoute(c echo.Context) error {
 		return err
 	}
 	db.Save(&route)
+	util.LogUpdate("Route", "admin", route.Path)
 	return c.JSON(http.StatusOK, route)
 }
 
@@ -102,6 +109,7 @@ func (h *AdminHandler) DeleteRoute(c echo.Context) error {
 	if err := db.Delete(&database.Route{}, id).Error; err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
+	util.LogDelete("Route", "admin", "ID: "+id)
 	return c.NoContent(http.StatusNoContent)
 }
 
@@ -148,5 +156,18 @@ func (h *AdminHandler) DeleteProtoMapping(c echo.Context) error {
 	if err := db.Delete(&database.ProtoMapping{}, id).Error; err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
+	util.LogDelete("ProtoMapping", "admin", "ID: "+id)
 	return c.NoContent(http.StatusNoContent)
+}
+
+func (h *AdminHandler) GetActivityLogs(c echo.Context) error {
+	var logs []database.ActivityLog
+	db := database.GetDB()
+	if err := db.Order("id desc").Limit(50).Find(&logs).Error; err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	return c.JSON(http.StatusOK, logs)
+}
+func (h *AdminHandler) GetMetrics(c echo.Context) error {
+	return c.JSON(http.StatusOK, metrics.DefaultRegistry)
 }

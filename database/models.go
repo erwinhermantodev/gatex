@@ -1,14 +1,20 @@
 package database
 
-import "gorm.io/gorm"
+import (
+	"time"
+
+	"gorm.io/gorm"
+)
 
 // Service represents a downstream service (e.g., auth-service)
 type Service struct {
 	gorm.Model
-	Name     string `gorm:"uniqueIndex"`
-	BaseURL  string
-	Protocol string // "rest" or "grpc"
-	GRPCAddr string
+	Name      string `gorm:"uniqueIndex"`
+	BaseURL   string
+	Protocol  string // "rest" or "grpc"
+	GRPCAddr  string
+	Status    string // "online", "offline", "unknown"
+	LastCheck *time.Time
 }
 
 // Route represents a gateway route mapping
@@ -32,4 +38,13 @@ type ProtoMapping struct {
 	ProtoPackage string
 	RequestType  string
 	ResponseType string
+}
+
+// ActivityLog tracks administrative actions
+type ActivityLog struct {
+	gorm.Model
+	Action   string
+	Resource string
+	User     string
+	Message  string
 }

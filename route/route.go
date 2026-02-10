@@ -32,8 +32,6 @@ type Route struct {
 
 // Init gateway router
 func Init() *echo.Echo {
-	// Initialize Database
-	database.Init()
 	routes := loadRoutesFromDB()
 
 	e := echo.New()
@@ -41,6 +39,7 @@ func Init() *echo.Echo {
 
 	store := NewRateLimiterStore()
 	e.Use(CacheControlMiddleware)
+	e.Use(customMw.MetricsMiddleware)
 	e.Use(rateLimiterMiddleware(store))
 	// Set Bundle MiddleWare
 	e.Use(middleware.RequestID())
@@ -83,6 +82,8 @@ func Init() *echo.Echo {
 	a.POST("/proto-mappings", admin.CreateProtoMapping)
 	a.PUT("/proto-mappings/:id", admin.UpdateProtoMapping)
 	a.DELETE("/proto-mappings/:id", admin.DeleteProtoMapping)
+	a.GET("/metrics", admin.GetMetrics)
+	a.GET("/logs", admin.GetActivityLogs)
 
 	// Serve Dashboard
 	e.Static("/dashboard", "dashboard/dist")

@@ -25,24 +25,24 @@ func (h *DynamicHandler) Handle(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound, "Endpoint configuration not found")
 	}
 
-	// 2. Resolve the client based on service protocol
-	// For now, we still use the AuthClient interface for auth-service
-	// In a fully generic gateway, we would use gRPC reflection or dynamic messaging
-	if dbRoute.Service.Name == "auth-service" {
-		var authClient client.AuthClient
-		if dbRoute.Service.Protocol == "grpc" {
-			authClient = client.NewGrpcAuthClient()
-		} else {
-			authClient = client.NewRestAuthClient()
-		}
+	// 3. Dispatch to handler or generic proxy
+	finalHandler := h.resolveHandler(c, dbRoute)
 
-		// Dispatch based on endpoint_filter
-		// This is still a bit static, but moves the selection to DB
-		// To be fully generic, we'd need a registry of method callers
-		return h.dispatchAuthCall(c, authClient, dbRoute.EndpointFilter)
+	// 4. Apply resilience middlewares dynamically from DB if any
+	// Note: Standard route middlewares are applied in route.go,
+	// but we can add more "organic" ones here or let them be part of the route MW.
+	return finalHandler(c)
+}
+
+func (h *DynamicHandler) resolveHandler(c echo.Context, dbRoute database.Route) echo.HandlerFunc {
+	// Check for specifically implemented handlers first
+	if handler, ok := endpoint[dbRoute.EndpointFilter]; ok {
+		return handler.Handle
 	}
 
-	return echo.NewHTTPError(http.StatusNotImplemented, "Service proxy not implemented")
+	// Fallback to Generic Proxy
+	proxy := NewGenericProxyHandler(dbRoute.Service)
+	return proxy.Handle
 }
 
 func (h *DynamicHandler) dispatchAuthCall(c echo.Context, authClient client.AuthClient, filter string) error {
