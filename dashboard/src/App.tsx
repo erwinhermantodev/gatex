@@ -22,7 +22,9 @@ import {
   ChevronLeft,
   ChevronRight,
   ArrowUpDown,
-  Filter
+  Filter,
+  Terminal,
+  Box
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -47,11 +49,12 @@ interface Route {
 interface ProtoMapping {
   ID: number;
   ServiceID: number;
-  Service?: Service;
   RPCMethod: string;
+  ServiceName: string;
   ProtoPackage: string;
   RequestType: string;
   ResponseType: string;
+  Service?: Service;
 }
 
 interface ActivityLog {
@@ -61,6 +64,33 @@ interface ActivityLog {
   User: string;
   Message: string;
   CreatedAt: string;
+}
+
+interface RequestLog {
+  ID: number;
+  RequestID: string;
+  Method: string;
+  Path: string;
+  StatusCode: number;
+  LatencyMS: number;
+  ClientIP: string;
+  UserAgent: string;
+  ErrorMessage: string;
+  CreatedAt: string;
+}
+
+interface TraceLog {
+  ID: number;
+  RequestID: string;
+  Level: string;
+  Component: string;
+  Message: string;
+  CreatedAt: string;
+}
+
+interface ServerEntry {
+  timestamp: string;
+  message: string;
 }
 
 interface Metrics {
@@ -78,10 +108,13 @@ const TABS = [
   { id: 'services', label: 'Services', icon: Server },
   { id: 'routes', label: 'Routes', icon: Globe },
   { id: 'proto', label: 'Proto Mappings', icon: Braces },
+  { id: 'traffic', label: 'Traffic Monitor', icon: Activity },
+  { id: 'system', label: 'System Logs', icon: Terminal },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
 export default function App() {
+  const [requestLogs, setRequestLogs] = useState<RequestLog[]>([]);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [services, setServices] = useState<Service[]>([]);
   const [routes, setRoutes] = useState<Route[]>([]);
@@ -89,12 +122,13 @@ export default function App() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [loading, setLoading] = useState(false);
-  const [modal, setModal] = useState<{ type: 'service' | 'route' | 'proto' | null, data: any }>({ type: null, data: null });
+  const [modal, setModal] = useState<{ type: 'service' | 'route' | 'proto' | 'trace' | null, data: any }>({ type: null, data: null });
+  const [serverLogs, setServerLogs] = useState<ServerEntry[]>([]);
   const [formLoading, setFormLoading] = useState(false);
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchMetrics, 10000);
+    const interval = setInterval(fetchMetrics, 20000);
     return () => clearInterval(interval);
   }, [activeTab]);
 
@@ -116,6 +150,15 @@ export default function App() {
     }
   };
 
+  const fetchTrafficLogs = async () => {
+    try {
+      const res = await axios.get('/admin/request-logs');
+      setRequestLogs(res.data || []);
+    } catch (err) {
+      console.error('Failed to fetch traffic logs', err);
+    }
+  };
+
   const fetchData = async () => {
     setLoading(true);
     try {
@@ -134,6 +177,13 @@ export default function App() {
       if (activeTab === 'dashboard') {
         await fetchMetrics();
         await fetchLogs();
+      }
+      if (activeTab === 'traffic' || activeTab === 'dashboard') {
+        await fetchTrafficLogs();
+      }
+      if (activeTab === 'system') {
+        const res = await axios.get('/admin/server-logs');
+        setServerLogs(res.data || []);
       }
     } catch (err) {
       console.error('Failed to fetch data', err);
@@ -269,19 +319,25 @@ export default function App() {
               {activeTab === 'services' && <ServicesModule services={services} onRefresh={fetchData} setModal={setModal} handleDelete={handleDelete} />}
               {activeTab === 'routes' && <RoutesModule routes={routes} services={services} onRefresh={fetchData} setModal={setModal} handleDelete={handleDelete} />}
               {activeTab === 'proto' && <ProtoMappingsModule mappings={protoMappings} onRefresh={fetchData} setModal={setModal} handleDelete={handleDelete} />}
+              {activeTab === 'traffic' && <TrafficModule logs={requestLogs} onRefresh={fetchData} setModal={setModal} />}
+              {activeTab === 'system' && <SystemLogsModule logs={serverLogs} onRefresh={fetchData} />}
             </motion.div>
           </AnimatePresence>
         </main>
       </div>
 
       <Modal 
-        isOpen={modal.type !== null} 
+        isOpen={!!modal.type} 
         onClose={() => setModal({ type: null, data: null })}
-        title={modal.data?.ID ? `Edit ${modal.type}` : `New ${modal.type}`}
+        title={modal.type === 'service' ? (modal.data?.ID ? 'Edit Service' : 'Add Service') : 
+               modal.type === 'route' ? (modal.data?.ID ? 'Edit Route' : 'Add Route') : 
+               modal.type === 'proto' ? (modal.data?.ID ? 'Edit Proto Mapping' : 'Add Proto Mapping') :
+               modal.type === 'trace' ? 'Request Trace Timeline' : ''}
       >
         {modal.type === 'service' && <ServiceForm data={modal.data} onSubmit={(data) => handleCreateOrUpdate('service', data)} loading={formLoading} />}
         {modal.type === 'route' && <RouteForm data={modal.data} services={services} onSubmit={(data) => handleCreateOrUpdate('route', data)} loading={formLoading} />}
         {modal.type === 'proto' && <ProtoForm data={modal.data} services={services} onSubmit={(data) => handleCreateOrUpdate('proto', data)} loading={formLoading} />}
+        {modal.type === 'trace' && <TraceView requestID={modal.data.RequestID} />}
       </Modal>
     </div>
   );
@@ -727,7 +783,7 @@ function ProtoMappingsModule({ mappings, onRefresh, setModal, handleDelete }: { 
                   </div>
                 </th>
               ))}
-              <th className="p-6 text-[11px] font-black text-zinc-500 uppercase tracking-[0.2em]">Signature</th>
+              <th className="p-6 text-[11px] font-black text-zinc-500 uppercase tracking-[0.2em]">Full Signature</th>
               <th className="p-6 text-right">Actions</th>
             </tr>
           </thead>
@@ -736,8 +792,8 @@ function ProtoMappingsModule({ mappings, onRefresh, setModal, handleDelete }: { 
               <tr key={m.ID} className="group hover:bg-white/[0.02] transition-colors">
                 <td className="p-6 font-bold text-cyan-400/90">{m.RPCMethod}</td>
                 <td className="p-6 text-sm font-semibold text-zinc-300">{m.Service?.Name || 'auth-service'}</td>
-                <td className="p-6 font-mono text-xs text-zinc-500">{m.ProtoPackage}</td>
-                <td className="p-6 text-[10px] font-mono"><div className="flex flex-col gap-0.5"><span className="text-cyan-500/50">Req: {m.RequestType}</span><span className="text-purple-500/50">Res: {m.ResponseType}</span></div></td>
+                <td className="p-6 font-mono text-xs text-zinc-500">{m.ProtoPackage}.{m.ServiceName}</td>
+                <td className="p-6 text-[10px] font-mono"><div className="flex flex-col gap-0.5"><span className="text-cyan-500/50">Method: {m.RPCMethod}</span><span className="text-purple-500/50">Types: {m.RequestType} → {m.ResponseType}</span></div></td>
                 <td className="p-6 text-right"><div className="flex justify-end gap-3 opacity-0 group-hover:opacity-100 transition-opacity"><button onClick={() => setModal({ type: 'proto', data: m })} className="p-2 hover:bg-white/10 rounded-xl text-zinc-400 hover:text-white transition-all"><Edit3 size={18} /></button><button onClick={() => handleDelete('proto', m.ID)} className="p-2 hover:bg-rose-500/10 rounded-xl text-zinc-400 hover:text-rose-500 transition-all"><Trash2 size={18} /></button></div></td>
               </tr>
             ))}
@@ -746,6 +802,192 @@ function ProtoMappingsModule({ mappings, onRefresh, setModal, handleDelete }: { 
         </table>
       </div>
       <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
+    </div>
+  );
+}
+
+function TrafficModule({ logs, onRefresh, setModal }: { logs: RequestLog[], onRefresh: () => void, setModal: (m: any) => void }) {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [methodFilter, setMethodFilter] = useState('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+
+  const filteredLogs = React.useMemo(() => {
+    return logs.filter(log => {
+      const matchesSearch = log.Path.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                            log.UserAgent.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesStatus = statusFilter === 'all' || 
+                            (statusFilter === '200' && log.StatusCode < 300) ||
+                            (statusFilter === '300' && log.StatusCode >= 300 && log.StatusCode < 400) ||
+                            (statusFilter === '400' && log.StatusCode >= 400 && log.StatusCode < 500) ||
+                            (statusFilter === '500' && log.StatusCode >= 500);
+      const matchesMethod = methodFilter === 'all' || log.Method === methodFilter;
+      return matchesSearch && matchesStatus && matchesMethod;
+    });
+  }, [logs, searchTerm, statusFilter, methodFilter]);
+
+  const totalPages = Math.ceil(filteredLogs.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const currentItems = filteredLogs.slice(startIndex, startIndex + itemsPerPage);
+
+  useEffect(() => setCurrentPage(1), [searchTerm, statusFilter, methodFilter]);
+
+  const getStatusColor = (status: number) => {
+    if (status >= 200 && status < 300) return 'text-emerald-400';
+    if (status >= 300 && status < 400) return 'text-blue-400';
+    if (status >= 400 && status < 500) return 'text-amber-400';
+    if (status >= 500) return 'text-rose-400';
+    return 'text-zinc-400';
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <h3 className="text-xl font-bold">Live Traffic Logs</h3>
+        <div className="flex items-center gap-4">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={16} />
+            <input 
+              type="text" 
+              placeholder="Search logs..." 
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="bg-white/5 border border-white/10 rounded-xl pl-10 pr-4 py-2 text-sm w-[200px] focus:outline-none focus:border-cyan-500/50 transition-all"
+            />
+          </div>
+          <select 
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="bg-[#161618] border border-white/10 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-cyan-500/50"
+          >
+            <option value="all">All Statuses</option>
+            <option value="200">2xx Success</option>
+            <option value="300">3xx Redirect</option>
+            <option value="400">4xx Client Error</option>
+            <option value="500">5xx Server Error</option>
+          </select>
+          <select 
+            value={methodFilter}
+            onChange={(e) => setMethodFilter(e.target.value)}
+            className="bg-[#161618] border border-white/10 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-cyan-500/50"
+          >
+            <option value="all">All Methods</option>
+            {['GET', 'POST', 'PUT', 'DELETE', 'PATCH'].map(m => <option key={m} value={m}>{m}</option>)}
+          </select>
+          <button onClick={onRefresh} className="p-2 bg-white/5 hover:bg-white/10 rounded-xl transition-all">
+            <RefreshCw size={18} className="text-zinc-400" />
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-zinc-900/40 rounded-3xl border border-white/5 overflow-hidden">
+        <table className="w-full text-left">
+          <thead className="bg-white/5">
+            <tr>
+              <th className="p-6 text-[11px] font-black text-zinc-500 uppercase tracking-widest">Timestamp</th>
+              <th className="p-6 text-[11px] font-black text-zinc-500 uppercase tracking-widest">Method</th>
+              <th className="p-6 text-[11px] font-black text-zinc-500 uppercase tracking-widest">Path</th>
+              <th className="p-6 text-[11px] font-black text-zinc-500 uppercase tracking-widest">Status</th>
+              <th className="p-6 text-[11px] font-black text-zinc-500 uppercase tracking-widest">Latency</th>
+              <th className="p-6 text-[11px] font-black text-zinc-500 uppercase tracking-widest">Client IP</th>
+              <th className="p-6 text-[11px] font-black text-zinc-500 uppercase tracking-widest">User Agent</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-white/5">
+            {currentItems.map(log => (
+              <tr key={log.ID} className="hover:bg-white/[0.02] transition-colors cursor-pointer" onClick={() => setModal({ type: 'trace', data: log })}>
+                <td className="p-6 text-xs text-zinc-400 tabular-nums">{new Date(log.CreatedAt).toLocaleTimeString()}</td>
+                <td className="p-6 text-[10px] font-black tracking-widest">{log.Method}</td>
+                <td className="p-6 font-mono text-xs text-cyan-400/80">{log.Path}</td>
+                <td className={`p-6 text-xs font-bold ${getStatusColor(log.StatusCode)}`}>{log.StatusCode}</td>
+                <td className="p-6 text-xs text-zinc-400 tabular-nums">{log.LatencyMS}ms</td>
+                <td className="p-6 text-xs text-zinc-400 font-mono">{log.ClientIP}</td>
+                <td className="p-6 text-xs text-zinc-400 truncate max-w-[150px]" title={log.UserAgent}>{log.UserAgent}</td>
+              </tr>
+            ))}
+            {currentItems.length === 0 && <tr><td colSpan={7} className="p-20 text-center text-zinc-600 italic font-medium">No traffic logs found</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
+    </div>
+  );
+}
+
+
+function TraceView({ requestID }: { requestID: string }) {
+  const [traces, setTraces] = useState<TraceLog[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+      const tryFetch = async () => {
+        try {
+          const res = await axios.get(`/admin/traces/${requestID}`);
+          setTraces(Array.isArray(res.data) ? res.data : []);
+        } catch (err) {
+          console.error('Failed to fetch traces', err);
+          setTraces([]);
+        } finally {
+          setLoading(false);
+        }
+      };
+      tryFetch();
+  }, [requestID]);
+
+  if (loading) return <div className="p-20 flex justify-center"><RefreshCw className="animate-spin text-cyan-500" /></div>;
+
+  return (
+    <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-4 custom-scrollbar">
+      {traces.length === 0 && <div className="text-center py-10 text-zinc-500 italic">No trace events recorded for this request.</div>}
+      {traces.map((t) => (
+        <div key={t.ID} className="relative pl-8 pb-4 border-l border-white/10 last:pb-0">
+          <div className={`absolute left-[-5px] top-1.5 w-2 h-2 rounded-full ${t.Level === 'ERROR' ? 'bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.5)]' : t.Level === 'WARN' ? 'bg-amber-500' : 'bg-cyan-500'}`} />
+          <div className="bg-white/5 rounded-xl p-4 border border-white/5 hover:border-white/10 transition-colors">
+            <div className="flex justify-between items-center mb-1">
+              <span className={`text-[10px] font-black tracking-widest uppercase ${t.Level === 'ERROR' ? 'text-rose-500' : t.Level === 'WARN' ? 'text-amber-500' : 'text-cyan-500'}`}>{t.Level} • {t.Component}</span>
+              <span className="text-[10px] text-zinc-600 font-mono tabular-nums">{new Date(t.CreatedAt).toLocaleTimeString()}</span>
+            </div>
+            <p className="text-sm text-zinc-300 leading-relaxed font-mono">{t.Message}</p>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SystemLogsModule({ logs, onRefresh }: { logs: ServerEntry[], onRefresh: () => void }) {
+  const logsEndRef = React.useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const interval = setInterval(onRefresh, 5000);
+    return () => clearInterval(interval);
+  }, [onRefresh]);
+
+  useEffect(() => {
+    logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [logs]);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <h3 className="text-xl font-bold">System Console</h3>
+        <button onClick={onRefresh} className="p-2 bg-white/5 hover:bg-white/10 rounded-xl transition-all">
+          <RefreshCw size={18} className="text-zinc-400" />
+        </button>
+      </div>
+      <div className="bg-[#0c0c0e] rounded-3xl border border-white/5 p-6 font-mono text-xs overflow-hidden h-[70vh] flex flex-col">
+        <div className="flex-1 overflow-y-auto space-y-1 custom-scrollbar pr-4">
+          {logs.map((l, i) => (
+            <div key={i} className="flex gap-4 group">
+              <span className="text-zinc-700 whitespace-nowrap tabular-nums">{new Date(l.timestamp).toLocaleTimeString()}</span>
+              <span className="text-zinc-400 break-all">{l.message}</span>
+            </div>
+          ))}
+          {logs.length === 0 && <div className="text-center py-20 text-zinc-700 italic">Listening for server output...</div>}
+          <div ref={logsEndRef} />
+        </div>
+      </div>
     </div>
   );
 }
@@ -855,6 +1097,7 @@ function ProtoForm({ data, services, onSubmit, loading }: { data: any, services:
   const [formData, setFormData] = React.useState({
     ServiceID: data?.ServiceID || services.find(s => s.Protocol === 'grpc')?.ID || 0,
     RPCMethod: data?.RPCMethod || '',
+    ServiceName: data?.ServiceName || '',
     ProtoPackage: data?.ProtoPackage || '',
     RequestType: data?.RequestType || '',
     ResponseType: data?.ResponseType || '',
@@ -868,8 +1111,11 @@ function ProtoForm({ data, services, onSubmit, loading }: { data: any, services:
           {services.filter(s => s.Protocol === 'grpc').map(s => <option key={s.ID} value={s.ID}>{s.Name}</option>)}
         </select>
       </div>
-      <div><label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-2 block">RPC Method Name</label><input value={formData.RPCMethod} onChange={(e) => setFormData({ ...formData, RPCMethod: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-cyan-500/50" placeholder="Login" required /></div>
-      <div><label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-2 block">Proto Package</label><input value={formData.ProtoPackage} onChange={(e) => setFormData({ ...formData, ProtoPackage: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-cyan-500/50" placeholder="auth.v1" required /></div>
+      <div><label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-2 block">RPC Method Name</label><input value={formData.RPCMethod} onChange={(e) => setFormData({ ...formData, RPCMethod: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-cyan-500/50" placeholder="e.g. Login" required /></div>
+      <div className="grid grid-cols-2 gap-4">
+        <div><label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-2 block">Proto Package</label><input value={formData.ProtoPackage} onChange={(e) => setFormData({ ...formData, ProtoPackage: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-cyan-500/50" placeholder="e.g. auth.v1" required /></div>
+        <div><label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-2 block">gRPC Service Name</label><input value={formData.ServiceName} onChange={(e) => setFormData({ ...formData, ServiceName: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-cyan-500/50" placeholder="e.g. AuthService" required /></div>
+      </div>
       <div className="grid grid-cols-2 gap-4">
         <div><label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-2 block">Request Type</label><input value={formData.RequestType} onChange={(e) => setFormData({ ...formData, RequestType: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-cyan-500/50" placeholder="LoginRequest" required /></div>
         <div><label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-2 block">Response Type</label><input value={formData.ResponseType} onChange={(e) => setFormData({ ...formData, ResponseType: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-cyan-500/50" placeholder="LoginResponse" required /></div>

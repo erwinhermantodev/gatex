@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/go-playground/validator/v10"
@@ -40,6 +41,7 @@ func Init() *echo.Echo {
 	store := NewRateLimiterStore()
 	e.Use(CacheControlMiddleware)
 	e.Use(customMw.MetricsMiddleware)
+	e.Use(customMw.TrafficLogger())
 	e.Use(rateLimiterMiddleware(store))
 	// Set Bundle MiddleWare
 	e.Use(middleware.RequestID())
@@ -84,6 +86,9 @@ func Init() *echo.Echo {
 	a.DELETE("/proto-mappings/:id", admin.DeleteProtoMapping)
 	a.GET("/metrics", admin.GetMetrics)
 	a.GET("/logs", admin.GetActivityLogs)
+	a.GET("/request-logs", admin.GetRequestLogs)
+	a.GET("/traces/:id", admin.GetTraceLogs)
+	a.GET("/server-logs", admin.GetServerLogs)
 
 	// Serve Dashboard
 	e.Static("/dashboard", "dashboard/dist")
@@ -165,6 +170,12 @@ func (store *RateLimiterStore) GetLimiter(ip string) *rate.Limiter {
 func rateLimiterMiddleware(store *RateLimiterStore) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
+			// Skip rate limiting for admin and dashboard
+			path := c.Request().URL.Path
+			if util.IsAdminPath(path) || strings.HasPrefix(path, "/dashboard") {
+				return next(c)
+			}
+
 			ip := c.RealIP()
 			limiter := store.GetLimiter(ip)
 

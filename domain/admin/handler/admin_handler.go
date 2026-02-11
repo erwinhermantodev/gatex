@@ -6,6 +6,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/database"
 	"gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/util"
+	"gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/util/logbuffer"
 	"gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/util/metrics"
 )
 
@@ -168,6 +169,29 @@ func (h *AdminHandler) GetActivityLogs(c echo.Context) error {
 	}
 	return c.JSON(http.StatusOK, logs)
 }
+func (h *AdminHandler) GetRequestLogs(c echo.Context) error {
+	var logs []database.RequestLog
+	db := database.GetDB()
+	if err := db.Order("id desc").Limit(100).Find(&logs).Error; err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	return c.JSON(http.StatusOK, logs)
+}
+
+func (h *AdminHandler) GetTraceLogs(c echo.Context) error {
+	requestID := c.Param("id")
+	var logs []database.TraceLog
+	db := database.GetDB()
+	if err := db.Where("request_id = ?", requestID).Order("id asc").Find(&logs).Error; err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	return c.JSON(http.StatusOK, logs)
+}
+
+func (h *AdminHandler) GetServerLogs(c echo.Context) error {
+	return c.JSON(http.StatusOK, logbuffer.DefaultBuffer.GetEntries())
+}
+
 func (h *AdminHandler) GetMetrics(c echo.Context) error {
 	return c.JSON(http.StatusOK, metrics.DefaultRegistry)
 }

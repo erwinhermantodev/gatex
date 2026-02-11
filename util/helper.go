@@ -407,3 +407,7 @@ func CleanMailNumber(input string) string {
 	}
 	return cleaned.String()
 }
+
+func IsAdminPath(path string) bool {
+	return strings.HasPrefix(path, "/admin")
+}

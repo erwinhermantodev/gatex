@@ -35,6 +35,7 @@ type ProtoMapping struct {
 	ServiceID    uint
 	Service      Service `gorm:"foreignKey:ServiceID"`
 	RPCMethod    string
+	ServiceName  string
 	ProtoPackage string
 	RequestType  string
 	ResponseType string
@@ -47,4 +48,26 @@ type ActivityLog struct {
 	Resource string
 	User     string
 	Message  string
+}
+
+// RequestLog tracks all traffic through the gateway
+type RequestLog struct {
+	gorm.Model
+	RequestID    string `gorm:"index"`
+	Method       string `gorm:"index"`
+	Path         string `gorm:"index"`
+	StatusCode   int
+	LatencyMS    int64
+	ClientIP     string
+	UserAgent    string
+	ErrorMessage string
+}
+
+// TraceLog captures granular events for a specific request
+type TraceLog struct {
+	gorm.Model
+	RequestID string `gorm:"index"`
+	Level     string
+	Component string
+	Message   string
 }
