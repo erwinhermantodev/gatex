@@ -193,5 +193,25 @@ func (h *AdminHandler) GetServerLogs(c echo.Context) error {
 }
 
 func (h *AdminHandler) GetMetrics(c echo.Context) error {
+	// Populate health info from registry before returning
+	db := database.GetDB()
+	var services []database.Service
+	db.Find(&services)
+
+	for _, s := range services {
+		stats := util.GetHealthStats(s.ID)
+		m := metrics.DefaultRegistry.GetServiceMetrics(s.Name)
+		m.HealthScore = stats.GetHealthScore()
+
+		status := "CLOSED"
+		switch stats.State {
+		case util.StateOpen:
+			status = "OPEN"
+		case util.StateHalfOpen:
+			status = "HALF-OPEN"
+		}
+		m.CircuitStatus = status
+	}
+
 	return c.JSON(http.StatusOK, metrics.DefaultRegistry)
 }

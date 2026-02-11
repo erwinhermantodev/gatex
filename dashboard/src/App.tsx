@@ -100,6 +100,8 @@ interface Metrics {
     avg_latency_ms: number;
     last_status: number;
     status_counts: Record<number, number>;
+    health_score: number;
+    circuit_status: string;
   }>;
 }
 
@@ -316,8 +318,8 @@ export default function App() {
               transition={{ duration: 0.3, ease: 'easeOut' }}
             >
               {activeTab === 'dashboard' && <DashboardContent services={services} routes={routes} metrics={metrics} logs={logs} onRefresh={fetchData} setModal={setModal} handleDelete={handleDelete} />}
-              {activeTab === 'services' && <ServicesModule services={services} onRefresh={fetchData} setModal={setModal} handleDelete={handleDelete} />}
-              {activeTab === 'routes' && <RoutesModule routes={routes} services={services} onRefresh={fetchData} setModal={setModal} handleDelete={handleDelete} />}
+              {activeTab === 'services' && <ServicesModule services={services} metrics={metrics} onRefresh={fetchData} setModal={setModal} handleDelete={handleDelete} />}
+              {activeTab === 'routes' && <RoutesModule routes={routes} services={services} metrics={metrics} onRefresh={fetchData} setModal={setModal} handleDelete={handleDelete} />}
               {activeTab === 'proto' && <ProtoMappingsModule mappings={protoMappings} onRefresh={fetchData} setModal={setModal} handleDelete={handleDelete} />}
               {activeTab === 'traffic' && <TrafficModule logs={requestLogs} onRefresh={fetchData} setModal={setModal} />}
               {activeTab === 'system' && <SystemLogsModule logs={serverLogs} onRefresh={fetchData} />}
@@ -392,9 +394,12 @@ function DashboardContent({ services, routes, metrics, logs, onRefresh, setModal
                   <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-cyan-500 text-black text-[10px] font-bold px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity">
                     {data.total_requests} req
                   </div>
-               </div>
-               <span className="text-[10px] text-zinc-500 font-bold uppercase truncate w-full text-center">{name}</span>
-            </div>
+                </div>
+                <div className="flex flex-col items-center">
+                  <span className="text-[10px] text-zinc-500 font-bold uppercase truncate w-full text-center">{name}</span>
+                  <span className={`text-[9px] font-black ${data.health_score > 90 ? 'text-emerald-500' : data.health_score > 70 ? 'text-amber-500' : 'text-rose-500'}`}>{data.health_score}%</span>
+                </div>
+             </div>
           ))}
           {(!metrics || Object.keys(metrics.services).length === 0) && <div className="w-full text-center pb-20 text-zinc-600 font-medium">No activity data yet</div>}
         </div>
@@ -481,6 +486,11 @@ function DashboardContent({ services, routes, metrics, logs, onRefresh, setModal
                   <td className="py-6 text-xs text-zinc-400 font-semibold">{r.Service?.Name || 'auth-service'}</td>
                   <td className="py-6 text-[11px] font-bold text-emerald-500 flex items-center gap-2 mt-4.5">
                     <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> Active
+                    {metrics?.services[r.Service?.Name || 'auth-service'] && (
+                      <span className="ml-2 px-1.5 py-0.5 bg-white/5 rounded text-[9px] text-zinc-500 uppercase">
+                        {metrics.services[r.Service?.Name || 'auth-service'].health_score}% Score
+                      </span>
+                    )}
                   </td>
                   <td className="py-6 text-right">
                     <div className="flex justify-end gap-2 opacity-20 group-hover:opacity-100 transition-opacity">
@@ -520,7 +530,7 @@ function StatCard({ label, value, trend, status, icon: Icon, color }: { label: s
   );
 }
 
-function ServicesModule({ services, onRefresh, setModal, handleDelete }: { services: Service[], onRefresh: () => void, setModal: (v: any) => void, handleDelete: (t: string, id: number) => void }) {
+function ServicesModule({ services, metrics, onRefresh, setModal, handleDelete }: { services: Service[], metrics: Metrics | null, onRefresh: () => void, setModal: (v: any) => void, handleDelete: (t: string, id: number) => void }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [protocolFilter, setProtocolFilter] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
@@ -572,7 +582,22 @@ function ServicesModule({ services, onRefresh, setModal, handleDelete }: { servi
       <div className="grid grid-cols-2 gap-6">
         {currentItems.map(s => (
           <div key={s.ID} className="bg-zinc-900/40 rounded-3xl border border-white/5 p-6 flex items-center justify-between group hover:border-cyan-500/20 transition-all">
-            <div className="flex items-center gap-5"><div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center text-cyan-400"><Server size={24} /></div><div className="flex flex-col"><span className="font-bold text-lg">{s.Name}</span><span className="text-xs font-mono text-zinc-500 uppercase tracking-widest">{s.Protocol} • {s.Protocol === 'grpc' ? s.GRPCAddr : s.BaseURL}</span></div></div>
+            <div className="flex items-center gap-5">
+              <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center text-cyan-400">
+                <Server size={24} />
+              </div>
+              <div className="flex flex-col">
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-lg">{s.Name}</span>
+                  {metrics?.services[s.Name] && (
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-tighter ${metrics.services[s.Name].circuit_status === 'CLOSED' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'}`}>
+                      CB: {metrics.services[s.Name].circuit_status}
+                    </span>
+                  )}
+                </div>
+                <span className="text-xs font-mono text-zinc-500 uppercase tracking-widest">{s.Protocol} • {s.Protocol === 'grpc' ? s.GRPCAddr : s.BaseURL}</span>
+              </div>
+            </div>
             <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity"><button onClick={() => setModal({ type: 'service', data: s })} className="p-2 hover:bg-white/10 rounded-xl text-zinc-400 hover:text-white transition-all"><Edit3 size={18} /></button><button onClick={() => handleDelete('service', s.ID)} className="p-2 hover:bg-rose-500/10 rounded-xl text-zinc-400 hover:text-rose-500 transition-all"><Trash2 size={18} /></button></div>
           </div>
         ))}
@@ -583,7 +608,7 @@ function ServicesModule({ services, onRefresh, setModal, handleDelete }: { servi
   );
 }
 
-function RoutesModule({ routes, services, onRefresh, setModal, handleDelete }: { routes: Route[], services: Service[], onRefresh: () => void, setModal: (v: any) => void, handleDelete: (t: string, id: number) => void }) {
+function RoutesModule({ routes, services, metrics, onRefresh, setModal, handleDelete }: { routes: Route[], services: Service[], metrics: Metrics | null, onRefresh: () => void, setModal: (v: any) => void, handleDelete: (t: string, id: number) => void }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [methodFilter, setMethodFilter] = useState('all');
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' | null }>({ key: 'Path', direction: 'asc' });

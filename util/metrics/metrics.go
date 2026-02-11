@@ -19,6 +19,8 @@ type ServiceMetrics struct {
 	LastStatus    int                  `json:"last_status"`
 	StatusCounts  map[int]int64        `json:"status_counts"`
 	PathMetrics   map[string]*PathInfo `json:"path_metrics"`
+	HealthScore   int                  `json:"health_score"`
+	CircuitStatus string               `json:"circuit_status"`
 	mu            sync.RWMutex
 }
 
