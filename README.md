@@ -4,7 +4,7 @@ A high-performance, feature-rich API Gateway designed for the ecosystem. Built w
 
 ## 📖 Documentation
 
-- **[User Guide (Customer API Docs)](file:///Users/Project/agen-pos/gateway-service/USER_GUIDE.md)**: How to consume APIs through the gateway.
+- **[User Guide (Customer API Docs)](file:///Users/Project/gateway-service/USER_GUIDE.md)**: How to consume APIs through the gateway.
 - **Admin API**: See the [API Documentation](#-api-documentation) section below for managing the gateway.
 
 ## 🚀 Key Features
@@ -90,5 +90,3 @@ The gateway exposes an administrative API for configuration and monitoring:
 | `/admin/server-logs`    | GET      | Real-time server console output         |
 
 ---
-
-Developed with ❤️ for the Agen-POS Team.
