@@ -124,7 +124,10 @@ func CustomHTTPErrorHandler(err error, c echo.Context) {
 	switch e := err.(type) {
 	case *echo.HTTPError:
 		code := e.Code
-		message := e.Message.(string)
+		message, ok := e.Message.(string)
+		if !ok {
+			message = http.StatusText(code)
+		}
 		genericException = mapHTTPErrorToGenericException(code, message)
 	case AppError:
 		genericException = e
@@ -134,10 +137,11 @@ func CustomHTTPErrorHandler(err error, c echo.Context) {
 
 	// Convert genericException to Response struct
 	response := &Response{
-		Status:  genericException.Status(),
-		Code:    genericException.Code(),
-		Message: genericException.Message(),
-		Data:    genericException.Data(),
+		Status:     genericException.Status(),
+		HTTPStatus: genericException.HTTPStatus(),
+		Code:       genericException.Code(),
+		Message:    genericException.Message(),
+		Data:       genericException.Data(),
 	}
 
 	// Marshal response to JSON and send it
@@ -149,7 +153,7 @@ func CustomHTTPErrorHandler(err error, c echo.Context) {
 func mapHTTPErrorToGenericException(code int, message string) AppError {
 	switch code {
 	case http.StatusBadRequest:
-		return NewGenericException("005", message, http.StatusForbidden)
+		return NewGenericException("005", message, http.StatusBadRequest)
 	case http.StatusUnauthorized:
 		return NewGenericException("006", message, http.StatusUnauthorized)
 	case http.StatusForbidden:
@@ -172,6 +176,9 @@ func mapHTTPErrorToGenericException(code int, message string) AppError {
 		return NewGenericException("016", message, http.StatusTooManyRequests)
 	case http.StatusRequestHeaderFieldsTooLarge:
 		return NewGenericException("017", message, http.StatusRequestHeaderFieldsTooLarge)
+	case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		// Upstream failures keep their status so clients and monitors can tell them apart.
+		return NewGenericException("018", message, code)
 	default:
 		return NewGenericException("999", "INTERNAL_SERVER_ERROR", http.StatusInternalServerError)
 	}

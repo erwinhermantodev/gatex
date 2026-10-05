@@ -8,14 +8,28 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/jhump/protoreflect/dynamic"
 	"github.com/labstack/echo/v4"
 	"gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/database"
 	"gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/util"
+	"gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/util/netguard"
 	"gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/util/tracing"
 	"google.golang.org/grpc/metadata"
 )
+
+// upstreamTransport is shared across requests (connection reuse) and refuses
+// to dial blocked addresses such as cloud metadata endpoints.
+var upstreamTransport = &http.Transport{
+	Proxy:                 nil,
+	DialContext:           netguard.DialContext,
+	MaxIdleConns:          100,
+	MaxIdleConnsPerHost:   20,
+	IdleConnTimeout:       90 * time.Second,
+	TLSHandshakeTimeout:   10 * time.Second,
+	ResponseHeaderTimeout: 60 * time.Second,
+}
 
 type GenericProxyHandler struct {
 	service database.Service
@@ -53,6 +67,7 @@ func (h *GenericProxyHandler) Handle(c echo.Context) error {
 
 	tracing.Info(c.Request().Context(), "REST", "Proxying to "+h.service.BaseURL)
 	proxy := httputil.NewSingleHostReverseProxy(target)
+	proxy.Transport = upstreamTransport
 
 	// Capture response to record success/failure
 	proxy.ModifyResponse = func(res *http.Response) error {

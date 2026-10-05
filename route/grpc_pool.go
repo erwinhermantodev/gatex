@@ -2,12 +2,14 @@ package route
 
 import (
 	"context"
+	"net"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/jhump/protoreflect/desc"
 	"github.com/jhump/protoreflect/grpcreflect"
+	"gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/util/netguard"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -33,7 +35,11 @@ func (p *grpcConns) get(addr string) (*grpc.ClientConn, error) {
 	if !strings.Contains(addr, "://") {
 		target = "passthrough:///" + addr // keep the resolver behaviour of the old grpc.Dial
 	}
-	conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(target,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithContextDialer(func(ctx context.Context, a string) (net.Conn, error) {
+			return netguard.DialContext(ctx, "tcp", a)
+		}))
 	if err != nil {
 		return nil, err
 	}

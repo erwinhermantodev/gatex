@@ -8,6 +8,7 @@ import (
 	"gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/util"
 	"gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/util/logbuffer"
 	"gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/util/metrics"
+	"gorm.io/gorm/clause"
 )
 
 type AdminHandler struct {
@@ -39,6 +40,9 @@ func (h *AdminHandler) CreateService(c echo.Context) error {
 	if err := c.Bind(service); err != nil {
 		return err
 	}
+	if err := validateService(service); err != nil {
+		return err
+	}
 	db := database.GetDB()
 	if err := db.Create(service).Error; err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
@@ -60,6 +64,9 @@ func (h *AdminHandler) UpdateService(c echo.Context) error {
 		return err
 	}
 	service.Model = keep
+	if err := validateService(&service); err != nil {
+		return err
+	}
 	if err := db.Save(&service).Error; err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
@@ -96,7 +103,10 @@ func (h *AdminHandler) CreateRoute(c echo.Context) error {
 		return err
 	}
 	db := database.GetDB()
-	if err := db.Create(route).Error; err != nil {
+	if err := validateRoute(db, route); err != nil {
+		return err
+	}
+	if err := db.Omit(clause.Associations).Create(route).Error; err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	h.onChange()
@@ -116,7 +126,10 @@ func (h *AdminHandler) UpdateRoute(c echo.Context) error {
 		return err
 	}
 	route.Model = keep
-	if err := db.Save(&route).Error; err != nil {
+	if err := validateRoute(db, &route); err != nil {
+		return err
+	}
+	if err := db.Omit(clause.Associations).Save(&route).Error; err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	h.onChange()
@@ -152,7 +165,10 @@ func (h *AdminHandler) CreateProtoMapping(c echo.Context) error {
 		return err
 	}
 	db := database.GetDB()
-	if err := db.Create(mapping).Error; err != nil {
+	if err := validateProtoMapping(db, mapping); err != nil {
+		return err
+	}
+	if err := db.Omit(clause.Associations).Create(mapping).Error; err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	return c.JSON(http.StatusCreated, mapping)
@@ -165,10 +181,17 @@ func (h *AdminHandler) UpdateProtoMapping(c echo.Context) error {
 	if err := db.First(&mapping, id).Error; err != nil {
 		return echo.NewHTTPError(http.StatusNotFound, "ProtoMapping not found")
 	}
+	keep := mapping.Model
 	if err := c.Bind(&mapping); err != nil {
 		return err
 	}
-	db.Save(&mapping)
+	mapping.Model = keep
+	if err := validateProtoMapping(db, &mapping); err != nil {
+		return err
+	}
+	if err := db.Omit(clause.Associations).Save(&mapping).Error; err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
 	return c.JSON(http.StatusOK, mapping)
 }
 

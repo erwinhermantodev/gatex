@@ -80,8 +80,13 @@ func compile(dr database.Route) compiledRoute {
 	for i := len(names) - 1; i >= 0; i-- {
 		mw, ok := middlewareHandler[names[i]]
 		if !ok {
-			log.Printf("Route %s %s: unknown middleware %q ignored", dr.Method, dr.Path, names[i])
-			continue
+			// Fail closed: a typo like "jwtt" must not leave a route unprotected.
+			log.Printf("Route %s %s: unknown middleware %q, route disabled", dr.Method, dr.Path, names[i])
+			name := names[i]
+			h = func(c echo.Context) error {
+				return echo.NewHTTPError(http.StatusInternalServerError, "Route misconfigured: unknown middleware "+name)
+			}
+			break
 		}
 		h = mw(h)
 	}

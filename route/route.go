@@ -16,6 +16,7 @@ import (
 	adminHandler "gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/domain/admin/handler"
 	customMw "gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/route/middleware"
 	"gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/util"
+	"gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/util/netguard"
 )
 
 // Route for mapping from json file
@@ -33,6 +34,8 @@ type Route struct {
 // Init gateway router
 func Init() *echo.Echo {
 	cfg := config.Load()
+	netguard.AllowLoopback = cfg.AllowLoopbackUpstreams
+	initMiddleware(cfg)
 	registry := NewRegistry()
 	if err := registry.Reload(); err != nil {
 		panic(err)

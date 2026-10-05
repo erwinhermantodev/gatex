@@ -41,3 +41,10 @@ func Init() *gorm.DB {
 func GetDB() *gorm.DB {
 	return db
 }
+
+// UseDB replaces the global connection and migrates the schema.
+// It exists so tests can run against an in-memory database.
+func UseDB(d *gorm.DB) error {
+	db = d
+	return db.AutoMigrate(&Service{}, &Route{}, &ProtoMapping{}, &ActivityLog{}, &RequestLog{}, &TraceLog{})
+}
