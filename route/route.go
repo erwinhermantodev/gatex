@@ -1,18 +1,17 @@
 package route
 
 import (
-	"encoding/json"
-	"log"
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"golang.org/x/time/rate"
 
-	"gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/database"
+	"gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/config"
 	"gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/domain"
 	adminHandler "gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/domain/admin/handler"
 	customMw "gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/route/middleware"
@@ -33,39 +32,43 @@ type Route struct {
 
 // Init gateway router
 func Init() *echo.Echo {
-	routes := loadRoutesFromDB()
+	cfg := config.Load()
+	registry := NewRegistry()
+	if err := registry.Reload(); err != nil {
+		panic(err)
+	}
 
 	e := echo.New()
+	if !cfg.TrustProxyHeaders {
+		// Use the TCP peer address; X-Forwarded-For is client-controlled.
+		e.IPExtractor = echo.ExtractIPDirect()
+	}
 	e.Validator = &domain.CustomValidator{Validator: validator.New()}
 
 	store := NewRateLimiterStore()
+	// RequestID must run first so every later middleware sees the ID.
+	e.Use(middleware.RequestID())
 	e.Use(CacheControlMiddleware)
 	e.Use(customMw.MetricsMiddleware)
 	e.Use(customMw.TrafficLogger())
 	e.Use(rateLimiterMiddleware(store))
 	// Set Bundle MiddleWare
-	e.Use(middleware.RequestID())
 	e.Pre(middleware.RemoveTrailingSlash())
 	e.Use(middleware.Recover())
 	e.Use(middleware.Gzip())
 	e.Use(middleware.Logger())
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
-		AllowOrigins:  []string{"*"},
-		AllowHeaders:  []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, echo.HeaderAuthorization, echo.HeaderContentLength, echo.HeaderAcceptEncoding, echo.HeaderAccessControlAllowOrigin, echo.HeaderAccessControlAllowHeaders, echo.HeaderContentDisposition, "X-Request-Id", "device-id", "X-Summary", "X-Account-Number", "X-Business-Name", "client-secret", "X-CSRF-Token", "x-api-key", "Cache-Control", "no-store, no-cache, must-revalidate, private"},
-		ExposeHeaders: []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, echo.HeaderAuthorization, echo.HeaderContentLength, echo.HeaderAcceptEncoding, echo.HeaderAccessControlAllowOrigin, echo.HeaderAccessControlAllowHeaders, echo.HeaderContentDisposition, "X-Request-Id", "device-id", "X-Summary", "X-Account-Number", "X-Business-Name", "client-secret", "X-CSRF-Token", "x-api-key", "Cache-Control", "no-store, no-cache, must-revalidate, private"},
+		AllowOrigins:  cfg.CORSAllowOrigins,
+		AllowHeaders:  []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, echo.HeaderAuthorization, echo.HeaderContentLength, echo.HeaderAcceptEncoding, echo.HeaderAccessControlAllowOrigin, echo.HeaderAccessControlAllowHeaders, echo.HeaderContentDisposition, "X-Request-Id", "device-id", "X-Summary", "X-Account-Number", "X-Business-Name", "client-secret", "X-CSRF-Token", "x-api-key", "Cache-Control"},
+		ExposeHeaders: []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, echo.HeaderAuthorization, echo.HeaderContentLength, echo.HeaderAcceptEncoding, echo.HeaderAccessControlAllowOrigin, echo.HeaderAccessControlAllowHeaders, echo.HeaderContentDisposition, "X-Request-Id", "device-id", "X-Summary", "X-Account-Number", "X-Business-Name", "client-secret", "X-CSRF-Token", "x-api-key", "Cache-Control"},
 		AllowMethods:  []string{echo.GET, echo.HEAD, echo.PUT, echo.PATCH, echo.POST, echo.DELETE},
 	}))
 
 	e.HTTPErrorHandler = util.CustomHTTPErrorHandler
 
-	for _, route := range routes {
-		h := NewDynamicHandler(route.Endpoint)
-		e.Add(route.Method, route.Path, h.Handle, chainMiddleware(route)...)
-	}
-
-	// Register Admin API
-	admin := adminHandler.NewAdminHandler()
-	a := e.Group("/admin")
+	// Register Admin API (token protected)
+	admin := adminHandler.NewAdminHandler(func() { _ = registry.Reload() })
+	a := e.Group("/admin", customMw.AdminAuth(cfg.AdminAPIToken))
 
 	// Services
 	a.GET("/services", admin.GetServices)
@@ -94,41 +97,10 @@ func Init() *echo.Echo {
 	e.Static("/dashboard", "dashboard/dist")
 	e.File("/dashboard", "dashboard/dist/index.html")
 
+	// Everything else is resolved against the DB-backed route table.
+	e.Any("/*", registry.Handle)
+
 	return e
-}
-
-func loadRoutesFromDB() []Route {
-	db := database.GetDB()
-	var dbRoutes []database.Route
-	if err := db.Find(&dbRoutes).Error; err != nil {
-		log.Printf("Error loading routes from DB: %v", err)
-		return nil
-	}
-
-	var routes []Route
-	for _, dr := range dbRoutes {
-		var mw []string
-		_ = json.Unmarshal([]byte(dr.Middleware), &mw)
-		routes = append(routes, Route{
-			Path:       dr.Path,
-			Method:     dr.Method,
-			Tag:        dr.Tag,
-			Endpoint:   dr.EndpointFilter,
-			Middleware: mw,
-		})
-	}
-
-	return routes
-}
-
-func chainMiddleware(route Route) []echo.MiddlewareFunc {
-	var mwHandlers []echo.MiddlewareFunc
-	// init mw for router ,attach router properties
-	mwHandlers = append(mwHandlers, customMw.SetContextValue(util.ContextRouterKey, route.Tag))
-	for _, v := range route.Middleware {
-		mwHandlers = append(mwHandlers, middlewareHandler[v])
-	}
-	return mwHandlers
 }
 
 // CacheControlMiddleware sets cache control headers
@@ -139,17 +111,33 @@ func CacheControlMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 	}
 }
 
-// RateLimiterStore to store rate limiters per IP
+const (
+	rateLimitPerSecond = 10
+	rateLimitBurst     = 5
+	limiterIdleTTL     = 10 * time.Minute
+	limiterSweepEvery  = time.Minute
+)
+
+type limiterEntry struct {
+	limiter  *rate.Limiter
+	lastSeen time.Time
+}
+
+// RateLimiterStore keeps one rate limiter per IP and evicts idle ones.
 type RateLimiterStore struct {
-	limiters map[string]*rate.Limiter
+	limiters map[string]*limiterEntry
 	mutex    sync.Mutex
 }
 
-// NewRateLimiterStore creates a new RateLimiterStore
+// NewRateLimiterStore creates a store and starts its background sweeper.
 func NewRateLimiterStore() *RateLimiterStore {
-	return &RateLimiterStore{
-		limiters: make(map[string]*rate.Limiter),
-	}
+	store := &RateLimiterStore{limiters: make(map[string]*limiterEntry)}
+	go func() {
+		for range time.Tick(limiterSweepEvery) {
+			store.sweep(limiterIdleTTL)
+		}
+	}()
+	return store
 }
 
 // GetLimiter retrieves the rate limiter for a specific IP, creating one if necessary
@@ -157,13 +145,24 @@ func (store *RateLimiterStore) GetLimiter(ip string) *rate.Limiter {
 	store.mutex.Lock()
 	defer store.mutex.Unlock()
 
-	limiter, exists := store.limiters[ip]
+	entry, exists := store.limiters[ip]
 	if !exists {
-		limiter = rate.NewLimiter(rate.Limit(10), 5) // 2 requests per second with a burst of 5
-		store.limiters[ip] = limiter
+		entry = &limiterEntry{limiter: rate.NewLimiter(rate.Limit(rateLimitPerSecond), rateLimitBurst)}
+		store.limiters[ip] = entry
 	}
+	entry.lastSeen = time.Now()
+	return entry.limiter
+}
 
-	return limiter
+// sweep drops limiters not used for longer than ttl.
+func (store *RateLimiterStore) sweep(ttl time.Duration) {
+	store.mutex.Lock()
+	defer store.mutex.Unlock()
+	for ip, entry := range store.limiters {
+		if time.Since(entry.lastSeen) > ttl {
+			delete(store.limiters, ip)
+		}
+	}
 }
 
 // rateLimiterMiddleware creates the rate limiting middleware

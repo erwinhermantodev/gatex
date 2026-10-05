@@ -17,6 +17,10 @@ func MetricsMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 		duration := time.Since(start)
 		status := c.Response().Status
 		path := c.Path()
+		// The catch-all router reports "/*"; prefer the matched route pattern.
+		if rp, ok := c.Get("route_path").(string); ok && rp != "" {
+			path = rp
+		}
 
 		// Get service name from context if set by SetContextValue
 		service := "unknown"

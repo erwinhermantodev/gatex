@@ -42,6 +42,8 @@ interface Route {
   Method: string;
   ServiceID: number;
   Service?: Service;
+  ProtoMappingID?: number | null;
+  ProtoMapping?: ProtoMapping | null;
   EndpointFilter: string;
   Tag: string;
 }
@@ -164,7 +166,7 @@ export default function App() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      if (activeTab === 'services' || activeTab === 'dashboard') {
+      if (activeTab === 'services' || activeTab === 'routes' || activeTab === 'dashboard') {
         const sRes = await axios.get('/admin/services');
         setServices(sRes.data || []);
       }
@@ -172,7 +174,7 @@ export default function App() {
         const rRes = await axios.get('/admin/routes');
         setRoutes(rRes.data || []);
       }
-      if (activeTab === 'proto' || activeTab === 'dashboard') {
+      if (activeTab === 'proto' || activeTab === 'routes' || activeTab === 'dashboard') {
         const pRes = await axios.get('/admin/proto-mappings');
         setProtoMappings(pRes.data || []);
       }
@@ -337,7 +339,7 @@ export default function App() {
                modal.type === 'trace' ? 'Request Trace Timeline' : ''}
       >
         {modal.type === 'service' && <ServiceForm data={modal.data} onSubmit={(data) => handleCreateOrUpdate('service', data)} loading={formLoading} />}
-        {modal.type === 'route' && <RouteForm data={modal.data} services={services} onSubmit={(data) => handleCreateOrUpdate('route', data)} loading={formLoading} />}
+        {modal.type === 'route' && <RouteForm data={modal.data} services={services} protoMappings={protoMappings} onSubmit={(data) => handleCreateOrUpdate('route', data)} loading={formLoading} />}
         {modal.type === 'proto' && <ProtoForm data={modal.data} services={services} onSubmit={(data) => handleCreateOrUpdate('proto', data)} loading={formLoading} />}
         {modal.type === 'trace' && <TraceView requestID={modal.data.RequestID} />}
       </Modal>
@@ -1081,17 +1083,25 @@ function ServiceForm({ data, onSubmit, loading }: { data: any, onSubmit: (val: a
   );
 }
 
-function RouteForm({ data, services, onSubmit, loading }: { data: any, services: Service[], onSubmit: (val: any) => void, loading: boolean }) {
+function RouteForm({ data, services, protoMappings, onSubmit, loading }: { data: any, services: Service[], protoMappings: ProtoMapping[], onSubmit: (val: any) => void, loading: boolean }) {
   const [formData, setFormData] = React.useState({
     Path: data?.Path || '',
     Method: data?.Method || 'GET',
     ServiceID: data?.ServiceID || services[0]?.ID || 0,
     EndpointFilter: data?.EndpointFilter || '',
     Tag: data?.Tag || 'default',
+    ProtoMappingID: (data?.ProtoMappingID ?? null) as number | null,
   });
 
+  const selectedService = services.find(s => s.ID === Number(formData.ServiceID));
+  const isGrpc = selectedService?.Protocol === 'grpc';
+  const serviceMappings = protoMappings.filter(m => m.ServiceID === Number(formData.ServiceID));
+
   return (
-    <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); onSubmit({ ...formData, ServiceID: Number(formData.ServiceID) }); }}>
+    <form className="space-y-4" onSubmit={(e) => {
+      e.preventDefault();
+      onSubmit({ ...formData, ServiceID: Number(formData.ServiceID), ProtoMappingID: isGrpc ? formData.ProtoMappingID : null });
+    }}>
       <div className="flex gap-4">
         <div className="w-1/3">
           <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-2 block">Method</label>
@@ -1106,10 +1116,20 @@ function RouteForm({ data, services, onSubmit, loading }: { data: any, services:
       </div>
       <div>
         <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-2 block">Upstream Service</label>
-        <select value={formData.ServiceID} onChange={(e) => setFormData({ ...formData, ServiceID: Number(e.target.value) })} className="w-full bg-[#161618] border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-cyan-500/50">
+        <select value={formData.ServiceID} onChange={(e) => setFormData({ ...formData, ServiceID: Number(e.target.value), ProtoMappingID: null })} className="w-full bg-[#161618] border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-cyan-500/50">
           {services.map(s => <option key={s.ID} value={s.ID}>{s.Name}</option>)}
         </select>
       </div>
+      {isGrpc && (
+        <div>
+          <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-2 block">gRPC Method Mapping</label>
+          <select value={formData.ProtoMappingID ?? ''} onChange={(e) => setFormData({ ...formData, ProtoMappingID: e.target.value ? Number(e.target.value) : null })} className="w-full bg-[#161618] border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-cyan-500/50">
+            <option value="">Auto (first mapping of service)</option>
+            {serviceMappings.map(m => <option key={m.ID} value={m.ID}>{m.ProtoPackage}.{m.ServiceName}/{m.RPCMethod}</option>)}
+          </select>
+          {serviceMappings.length === 0 && <p className="text-xs text-zinc-500 mt-2">No proto mappings for this service yet. Create one in the Proto Mappings tab.</p>}
+        </div>
+      )}
       <div><label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-2 block">Endpoint Filter / Handler</label><input value={formData.EndpointFilter} onChange={(e) => setFormData({ ...formData, EndpointFilter: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-cyan-500/50" placeholder="login" required /></div>
       <button disabled={loading} className="w-full py-3 bg-cyan-500 hover:bg-cyan-600 rounded-xl font-bold text-sm transition-all mt-6 shadow-[0_0_20px_rgba(6,182,212,0.3)] disabled:opacity-50">
         {loading ? 'Saving...' : 'Save Route'}

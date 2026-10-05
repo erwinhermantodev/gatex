@@ -7,26 +7,23 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strings"
 
 	"github.com/jhump/protoreflect/dynamic"
-	"github.com/jhump/protoreflect/grpcreflect"
 	"github.com/labstack/echo/v4"
 	"gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/database"
 	"gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/util"
 	"gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/util/tracing"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/reflection/grpc_reflection_v1alpha"
-	"google.golang.org/grpc/status"
+	"google.golang.org/grpc/metadata"
 )
 
 type GenericProxyHandler struct {
 	service database.Service
+	mapping *database.ProtoMapping // nil: fall back to the service's first mapping
 }
 
-func NewGenericProxyHandler(service database.Service) *GenericProxyHandler {
-	return &GenericProxyHandler{service: service}
+func NewGenericProxyHandler(service database.Service, mapping *database.ProtoMapping) *GenericProxyHandler {
+	return &GenericProxyHandler{service: service, mapping: mapping}
 }
 
 func (h *GenericProxyHandler) Handle(c echo.Context) error {
@@ -87,34 +84,56 @@ func (h *GenericProxyHandler) Handle(c echo.Context) error {
 	return nil
 }
 
+// grpcSkipHeaders are not forwarded as gRPC metadata.
+var grpcSkipHeaders = map[string]bool{
+	"host": true, "content-length": true, "content-type": true, "accept-encoding": true,
+	"connection": true, "keep-alive": true, "te": true, "trailer": true,
+	"transfer-encoding": true, "upgrade": true, "user-agent": true,
+}
+
+func grpcMetadata(c echo.Context) metadata.MD {
+	md := metadata.MD{}
+	for k, vals := range c.Request().Header {
+		key := strings.ToLower(k)
+		if grpcSkipHeaders[key] || strings.HasPrefix(key, "grpc-") || strings.HasPrefix(key, ":") {
+			continue
+		}
+		md.Append(key, vals...)
+	}
+	if id := c.Response().Header().Get(echo.HeaderXRequestID); id != "" {
+		md.Set("x-request-id", id)
+	}
+	if ip := c.RealIP(); ip != "" {
+		md.Set("x-forwarded-for", ip)
+	}
+	return md
+}
+
 func (h *GenericProxyHandler) handleGRPC(c echo.Context) error {
-	db := database.GetDB()
-	var mapping database.ProtoMapping
-	if err := db.Where("service_id = ?", h.service.ID).First(&mapping).Error; err != nil {
-		tracing.Error(c.Request().Context(), "gRPC", "No proto mapping found")
-		return echo.NewHTTPError(http.StatusNotFound, "gRPC mapping not found for this service")
+	ctx := c.Request().Context()
+
+	mapping := h.mapping
+	if mapping == nil {
+		var m database.ProtoMapping
+		if err := database.GetDB().Where("service_id = ?", h.service.ID).First(&m).Error; err != nil {
+			tracing.Error(ctx, "gRPC", "No proto mapping found")
+			return echo.NewHTTPError(http.StatusNotFound, "gRPC mapping not found for this service")
+		}
+		mapping = &m
 	}
 
-	tracing.Info(c.Request().Context(), "gRPC", "Dialing "+h.service.GRPCAddr)
-	conn, err := grpc.Dial(h.service.GRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := conns.get(h.service.GRPCAddr)
 	if err != nil {
-		tracing.Error(c.Request().Context(), "gRPC", "Dial failed: "+err.Error())
+		tracing.Error(ctx, "gRPC", "Client setup failed: "+err.Error())
 		return echo.NewHTTPError(http.StatusServiceUnavailable, "Failed to connect to gRPC service")
 	}
-	defer conn.Close()
-
-	ctx := c.Request().Context()
-	client := grpcreflect.NewClient(ctx, grpc_reflection_v1alpha.NewServerReflectionClient(conn))
-	defer client.Reset()
 
 	fullServiceName := fmt.Sprintf("%s.%s", mapping.ProtoPackage, mapping.ServiceName)
-	svcDesc, err := client.ResolveService(fullServiceName)
+	methodDesc, err := resolveMethod(ctx, conn, h.service.GRPCAddr, fullServiceName, mapping.RPCMethod)
 	if err != nil {
 		tracing.Error(ctx, "gRPC", "Service resolution failed: "+err.Error())
-		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("Failed to resolve gRPC service: %v", err))
+		return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("Failed to resolve gRPC service: %v", err))
 	}
-
-	methodDesc := svcDesc.FindMethodByName(mapping.RPCMethod)
 	if methodDesc == nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "gRPC method not found")
 	}
@@ -125,20 +144,18 @@ func (h *GenericProxyHandler) handleGRPC(c echo.Context) error {
 	}
 
 	reqMsg := dynamic.NewMessage(methodDesc.GetInputType())
-	if err := json.Unmarshal(body, reqMsg); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Failed to parse JSON into gRPC request: %v", err))
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, reqMsg); err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Failed to parse JSON into gRPC request: %v", err))
+		}
 	}
 
 	resMsg := dynamic.NewMessage(methodDesc.GetOutputType())
 	tracing.Info(ctx, "gRPC", "Invoking method "+mapping.RPCMethod)
-	err = conn.Invoke(ctx, fmt.Sprintf("/%s/%s", fullServiceName, mapping.RPCMethod), reqMsg, resMsg)
+	callCtx := metadata.NewOutgoingContext(ctx, grpcMetadata(c))
+	err = conn.Invoke(callCtx, fmt.Sprintf("/%s/%s", fullServiceName, mapping.RPCMethod), reqMsg, resMsg)
 	if err != nil {
 		tracing.Error(ctx, "gRPC", "Invocation failed: "+err.Error())
-		if s, ok := status.FromError(err); ok {
-			if s.Code() == codes.Unavailable || s.Code() == codes.Internal {
-				return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("gRPC call failed: %v", err))
-			}
-		}
 		return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("gRPC call failed: %v", err))
 	}
 

@@ -1,2 +1,6 @@
 .air.toml
 tmp/
+.env
+*.db
+gateway-service
+node_modules/

@@ -3,6 +3,8 @@ package config
 import (
 	"log"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/joho/godotenv"
@@ -18,6 +20,10 @@ type Config struct {
 	DBUser              string
 	DBPassword          string
 	DBName              string
+	AdminAPIToken       string
+	CORSAllowOrigins    []string
+	LogRetentionDays    int
+	TrustProxyHeaders   bool
 }
 
 var (
@@ -42,6 +48,10 @@ func Load() *Config {
 			DBUser:              os.Getenv("DB_USER"),
 			DBPassword:          os.Getenv("DB_PASSWORD"),
 			DBName:              os.Getenv("DB_NAME"),
+			AdminAPIToken:       os.Getenv("ADMIN_API_TOKEN"),
+			LogRetentionDays:    getEnvInt("LOG_RETENTION_DAYS", 7),
+			TrustProxyHeaders:   getEnv("TRUST_PROXY_HEADERS", "true") != "false",
+			CORSAllowOrigins:    splitCSV(getEnv("CORS_ALLOW_ORIGINS", "*")),
 		}
 	})
 	return instance
@@ -50,6 +60,26 @@ func Load() *Config {
 func getEnv(key, fallback string) string {
 	if value, exists := os.LookupEnv(key); exists {
 		return value
+	}
+	return fallback
+}
+
+func splitCSV(v string) []string {
+	var out []string
+	for _, p := range strings.Split(v, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	if len(out) == 0 {
+		return []string{"*"}
+	}
+	return out
+}
+
+func getEnvInt(key string, fallback int) int {
+	if v, err := strconv.Atoi(os.Getenv(key)); err == nil {
+		return v
 	}
 	return fallback
 }

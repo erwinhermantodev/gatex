@@ -17,15 +17,12 @@ func Trace(ctx context.Context, level, component, message string) {
 		return
 	}
 
-	go func() {
-		db := database.GetDB()
-		db.Create(&database.TraceLog{
-			RequestID: requestID,
-			Level:     level,
-			Component: component,
-			Message:   message,
-		})
-	}()
+	database.EnqueueTraceLog(database.TraceLog{
+		RequestID: requestID,
+		Level:     level,
+		Component: component,
+		Message:   message,
+	})
 }
 
 func Info(ctx context.Context, component, message string) {

@@ -10,10 +10,17 @@ import (
 	"gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/util/metrics"
 )
 
-type AdminHandler struct{}
+type AdminHandler struct {
+	// onChange is called after services or routes change so the gateway can
+	// refresh its route table.
+	onChange func()
+}
 
-func NewAdminHandler() *AdminHandler {
-	return &AdminHandler{}
+func NewAdminHandler(onChange func()) *AdminHandler {
+	if onChange == nil {
+		onChange = func() {}
+	}
+	return &AdminHandler{onChange: onChange}
 }
 
 // --- Service Handlers ---
@@ -36,6 +43,7 @@ func (h *AdminHandler) CreateService(c echo.Context) error {
 	if err := db.Create(service).Error; err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
+	h.onChange()
 	util.LogCreate("Service", "admin", service.Name)
 	return c.JSON(http.StatusCreated, service)
 }
@@ -47,10 +55,15 @@ func (h *AdminHandler) UpdateService(c echo.Context) error {
 	if err := db.First(&service, id).Error; err != nil {
 		return echo.NewHTTPError(http.StatusNotFound, "Service not found")
 	}
+	keep := service.Model
 	if err := c.Bind(&service); err != nil {
 		return err
 	}
-	db.Save(&service)
+	service.Model = keep
+	if err := db.Save(&service).Error; err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	h.onChange()
 	util.LogUpdate("Service", "admin", service.Name)
 	return c.JSON(http.StatusOK, service)
 }
@@ -61,6 +74,7 @@ func (h *AdminHandler) DeleteService(c echo.Context) error {
 	if err := db.Delete(&database.Service{}, id).Error; err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
+	h.onChange()
 	util.LogDelete("Service", "admin", "ID: "+id)
 	return c.NoContent(http.StatusNoContent)
 }
@@ -70,7 +84,7 @@ func (h *AdminHandler) DeleteService(c echo.Context) error {
 func (h *AdminHandler) GetRoutes(c echo.Context) error {
 	var routes []database.Route
 	db := database.GetDB()
-	if err := db.Preload("Service").Find(&routes).Error; err != nil {
+	if err := db.Preload("Service").Preload("ProtoMapping").Find(&routes).Error; err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	return c.JSON(http.StatusOK, routes)
@@ -85,6 +99,7 @@ func (h *AdminHandler) CreateRoute(c echo.Context) error {
 	if err := db.Create(route).Error; err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
+	h.onChange()
 	util.LogCreate("Route", "admin", route.Path)
 	return c.JSON(http.StatusCreated, route)
 }
@@ -96,10 +111,15 @@ func (h *AdminHandler) UpdateRoute(c echo.Context) error {
 	if err := db.First(&route, id).Error; err != nil {
 		return echo.NewHTTPError(http.StatusNotFound, "Route not found")
 	}
+	keep := route.Model
 	if err := c.Bind(&route); err != nil {
 		return err
 	}
-	db.Save(&route)
+	route.Model = keep
+	if err := db.Save(&route).Error; err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	h.onChange()
 	util.LogUpdate("Route", "admin", route.Path)
 	return c.JSON(http.StatusOK, route)
 }
@@ -110,6 +130,7 @@ func (h *AdminHandler) DeleteRoute(c echo.Context) error {
 	if err := db.Delete(&database.Route{}, id).Error; err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
+	h.onChange()
 	util.LogDelete("Route", "admin", "ID: "+id)
 	return c.NoContent(http.StatusNoContent)
 }
@@ -204,7 +225,7 @@ func (h *AdminHandler) GetMetrics(c echo.Context) error {
 		m.HealthScore = stats.GetHealthScore()
 
 		status := "CLOSED"
-		switch stats.State {
+		switch stats.GetState() {
 		case util.StateOpen:
 			status = "OPEN"
 		case util.StateHalfOpen:

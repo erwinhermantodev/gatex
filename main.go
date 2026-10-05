@@ -21,6 +21,7 @@ func main() {
 	cfg := config.Load()
 
 	database.Init()
+	database.StartLogWriters(cfg.LogRetentionDays)
 	cron.StartHealthChecker()
 
 	e := route.Init()

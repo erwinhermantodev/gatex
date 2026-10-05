@@ -2,10 +2,12 @@ package middleware
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
 	"gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/database"
+	"gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/util"
 	"gitlab.com/posfin-unigo/middleware/agen-pos/backend/gateway-service/util/tracing"
 )
 
@@ -23,6 +25,11 @@ func TrafficLogger() echo.MiddlewareFunc {
 
 			start := time.Now()
 			err := next(c)
+
+			// Skip the dashboard and its admin polling to keep the log about real traffic.
+			if path := c.Request().URL.Path; util.IsAdminPath(path) || strings.HasPrefix(path, "/dashboard") {
+				return err
+			}
 			latency := time.Since(start)
 
 			// Extract request info
@@ -43,13 +50,7 @@ func TrafficLogger() echo.MiddlewareFunc {
 				log.ErrorMessage = err.Error()
 			}
 
-			// We use a background goroutine or just save it synchronously for now
-			// Given this is an admin dashboard, sync is fine for low traffic,
-			// but goroutine is better for performance.
-			go func(l database.RequestLog) {
-				db := database.GetDB()
-				db.Create(&l)
-			}(log)
+			database.EnqueueRequestLog(log)
 
 			return err
 		}

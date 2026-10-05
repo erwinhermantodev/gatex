@@ -20,11 +20,15 @@ type Service struct {
 // Route represents a gateway route mapping
 type Route struct {
 	gorm.Model
-	Path           string `gorm:"uniqueIndex"`
-	Method         string
-	ServiceID      uint
-	Service        Service `gorm:"foreignKey:ServiceID"`
-	EndpointFilter string  // The handler identifier
+	Path      string `gorm:"uniqueIndex"`
+	Method    string
+	ServiceID uint
+	Service   Service `gorm:"foreignKey:ServiceID"`
+	// ProtoMappingID selects the gRPC method for this route (grpc services).
+	// When nil, the first mapping of the service is used (legacy behaviour).
+	ProtoMappingID *uint
+	ProtoMapping   *ProtoMapping `gorm:"foreignKey:ProtoMappingID"`
+	EndpointFilter string        // The handler identifier
 	Tag            string
 	Middleware     string // JSON encoded array of middleware names
 }
