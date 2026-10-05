@@ -1,82 +1,95 @@
 # Gateway User Guide
 
-This guide provides information on how to consume APIs through the Gateway Service.
+How to call APIs through the Gateway Service. For operating the gateway, see [docs/ADMIN_API.md](docs/ADMIN_API.md).
 
-## 🛰️ Base URL
+## Base URL
 
-All API requests should be sent to:
 `http://<gateway-host>:8080`
 
-## 📑 Request Headers
+Ask your gateway administrator which paths are available; they are configured per environment.
 
-The gateway supports and propagates several important headers:
+## Request headers
 
-| Header          | Description                                                                                                          | Required           |
-| :-------------- | :------------------------------------------------------------------------------------------------------------------- | :----------------- |
-| `Content-Type`  | Set to `application/json` for most requests.                                                                         | Yes                |
-| `X-Request-Id`  | A unique identifier for the request. If not provided, the gateway generates one. Use this for tracing and debugging. | Optional           |
-| `Authorization` | Bearer token or API key as required by the upstream service.                                                         | Depends on service |
+| Header          | Description                                                                                                           | Required                  |
+| :-------------- | :-------------------------------------------------------------------------------------------------------------------- | :------------------------ |
+| `Content-Type`  | `application/json` for requests with a body.                                                                          | When sending a body       |
+| `X-Request-Id`  | Your own correlation ID. If you don't send one, the gateway generates one. It is returned in the response headers.    | Optional                  |
+| `Authorization` | `Bearer <token>` for routes protected by JWT auth. Also forwarded to the upstream service.                            | Depends on route          |
+| `x-api-key`     | API key for routes protected by API-key auth.                                                                         | Depends on route          |
 
-## 🛠️ Consuming APIs
+Other request headers are forwarded to the upstream service as well (for gRPC upstreams they become gRPC metadata).
 
-The gateway routes requests based on the **Path** and **HTTP Method**.
+## Calling REST endpoints
 
-### REST Endpoints
-
-Simply call the path defined in the Gateway configuration. The gateway will proxy the request to the configured upstream service.
-
-**Example:**
+Call the gateway path exactly as configured; method, path and body are proxied to the upstream, and the upstream's response is returned unchanged.
 
 ```bash
-curl -X GET http://localhost:8080/v1/users/profile \
-     -H "X-Request-Id: client-req-123" \
-     -H "Content-Type: application/json"
+curl http://localhost:8080/api/users/42 \
+     -H "Authorization: Bearer $TOKEN" \
+     -H "X-Request-Id: client-req-123"
 ```
 
-### gRPC Endpoints (via Transcoding)
+Paths may contain parameters (`/api/users/:id` matches `/api/users/42`). A trailing slash is ignored.
 
-The gateway allows you to call gRPC services using standard REST/JSON semantics.
+## Calling gRPC services (JSON transcoding)
 
-- Send a `POST` or `GET` request to the mapped path.
-- The gateway converts your JSON body into a Protobuf message and invokes the gRPC service.
-- The response is converted back to JSON.
-
-**Example:**
+gRPC methods are exposed as ordinary JSON endpoints. Send the request message as JSON; field names follow the protobuf message (e.g. `phone_number`).
 
 ```bash
-curl -X POST http://localhost:8080/auth/login \
+curl -X POST http://localhost:8080/auth/check-phone \
      -H "Content-Type: application/json" \
-     -d '{"username": "admin", "password": "password"}'
+     -d '{"phone_number": "0812345678"}'
 ```
 
-## 🔍 Observability & Support
+- The JSON body becomes the protobuf request; the protobuf response is returned as JSON with HTTP `200`.
+- Authentication headers are passed to the gRPC service as metadata.
+- If the gRPC call fails, you get `502` with the reason in `message`.
 
-If you encounter an issue with a request, please provide the `X-Request-Id` returned in the response headers.
+## Authentication
 
-### Why the `X-Request-Id` matters:
+Some routes require authentication at the gateway itself, before the request reaches the service:
 
-Every request is tracked using **Distributed Tracing**. Providing this ID allows the Gateway administrators to view a complete timeline of your request, including:
+| Route protection | What to send                                                                  | Failure              |
+| :--------------- | :---------------------------------------------------------------------------- | :------------------- |
+| JWT              | `Authorization: Bearer <JWT>` (the token must not be expired)                 | `401` invalid/missing |
+| API key          | `x-api-key: <key>`                                                            | `401` invalid/missing |
 
-- Exactly when the gateway received the request.
-- Which upstream service was targeted.
-- The latency of the upstream call.
-- Any internal errors or warnings that occurred during proxying.
+`503` on such a route means authentication isn't configured on the gateway — contact the administrator.
 
-## ❌ Error Handling
+## Rate limiting
 
-The gateway returns standard HTTP status codes:
+Each client IP may send **10 requests per second** (short bursts of 5). Beyond that the gateway answers `429 Too Many Requests` (plain-text body). Back off and retry with a short delay.
 
-- `2xx`: Success
-- `4xx`: Client Error (e.g., `404 Not Found`, `429 Too Many Requests`)
-- `5xx`: Server Error (e.g., upstream service is down)
+## Errors
 
-Errors are returned in a consistent JSON format:
+Errors use the real HTTP status and a JSON body:
 
 ```json
 {
   "status": false,
-  "code": "ERROR_CODE",
-  "message": "A human-readable error message",
+  "code": "008",
+  "message": "Not Found",
   "data": null
 }
 ```
+
+| HTTP | `code` | Typical cause                                                         |
+| :--- | :----- | :-------------------------------------------------------------------- |
+| 400  | `005`  | Invalid request body or parameters                                    |
+| 401  | `006`  | Missing/invalid token or API key                                      |
+| 403  | `007`  | Not allowed                                                           |
+| 404  | `008`  | No route for this path                                                |
+| 405  | `009`  | The path exists, but not for this HTTP method                         |
+| 429  | `016`  | Rate limit exceeded                                                   |
+| 502  | `018`  | The upstream service failed or returned an invalid response           |
+| 503  | `018`  | The upstream is temporarily disabled by the circuit breaker, or auth isn't configured |
+| 504  | `018`  | The upstream took too long                                            |
+| 500  | `999`  | Unexpected gateway error                                              |
+
+Errors returned by the upstream service itself (REST) are passed through as the upstream sent them, so their format may differ.
+
+**Circuit breaker:** after repeated upstream failures the gateway answers `503` immediately for about 30 seconds, then lets a single request through to check whether the service has recovered. Retrying after a short pause is safe.
+
+## Troubleshooting
+
+Every response carries an `X-Request-Id` header. When reporting a problem, include that ID: administrators can open the full timeline of the request — when it arrived, which service handled it, how long the upstream took, and any errors — in the dashboard.
