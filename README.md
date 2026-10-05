@@ -12,7 +12,8 @@ An API gateway written in Go (Echo, GORM/Postgres) with a React admin dashboard.
 | Doc                                      | For                                                      |
 | :--------------------------------------- | :------------------------------------------------------- |
 | [USER_GUIDE.md](USER_GUIDE.md)           | Developers calling APIs through the gateway              |
-| [docs/ADMIN_API.md](docs/ADMIN_API.md)   | Operators managing services, routes and mappings         |
+| [docs/DASHBOARD.md](docs/DASHBOARD.md)   | Operators using the web UI                               |
+| [docs/ADMIN_API.md](docs/ADMIN_API.md)   | Scripting services, routes and mappings                  |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Contributors: request flow, components, design choices |
 | This README                              | Setup, configuration, development                        |
 
@@ -37,7 +38,7 @@ npm run build               # gateway serves dashboard/dist; run the gateway fro
 npm run dev                 # http://localhost:5173/dashboard
 ```
 
-The dashboard asks for the admin token the first time the Admin API answers 401, and keeps it in the browser's localStorage.
+The dashboard asks for the admin token the first time the Admin API answers 401, and keeps it in the browser's localStorage. See the [Dashboard Guide](docs/DASHBOARD.md).
 
 **Your first route** (replace the token and upstream):
 
